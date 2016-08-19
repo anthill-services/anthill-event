@@ -126,7 +126,7 @@ class EventProfileHandler(AuthenticatedHandler):
                 "Failed to update profile for the user '{0}' in the event '{1}': {2}".format(
                     account_id, event_id, e))
         else:
-            self.write(json.dumps(new_data))
+            self.dumps(new_data)
 
 
 class EventScoreHandler(AuthenticatedHandler):
@@ -179,7 +179,7 @@ class EventScoreHandler(AuthenticatedHandler):
             result = {
                 "score": new_score
             }
-            self.write(json.dumps(result))
+            self.dumps(result)
 
 
 class EventsHandler(AuthenticatedHandler):
@@ -191,17 +191,16 @@ class EventsHandler(AuthenticatedHandler):
         gamespace_id = self.current_user.token.get(AccessToken.GAMESPACE)
 
         try:
-            events = yield self.application.events.get_events(gamespace_id, account_id)
+            events = yield self.application.events.get_events(
+                gamespace_id,
+                account_id)
 
-            result = json.dumps({
-                "events": [event.dump() for event in events]
-            })
-
-            self.write(result)
         except Exception as e:
             raise HTTPError(
                 500, "Failed to fetch a list of "
                 "current events available for user '{0}': {1}".format(account_id, e)
             )
-
-
+        else:
+            self.dumps({
+                "events": [event.dump() for event in events]
+            })

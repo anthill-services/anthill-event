@@ -332,7 +332,11 @@ class EventsController(a.AdminController):
     EVENTS_IN_PAGE = 20
 
     @coroutine
-    def apply(self, category):
+    def apply(self, category=None):
+
+        if not category:
+            raise a.Redirect("choose_category")
+
         raise a.Redirect("events", category=category)
 
     @coroutine
@@ -573,8 +577,8 @@ class NewEventController(a.AdminController):
                     ),
                     "enabled": a.field("Is event enabled", "switch", "primary", order=3),
                     "tournament": a.field("Is tournament enabled", "switch", "primary", order=4),
-                    "start_dt": a.field("Start date", "date", "primary", order=1),
-                    "end_dt": a.field("End date", "date", "primary", order=2)
+                    "start_dt": a.field("Start date", "date", "primary", "non-empty", order=1),
+                    "end_dt": a.field("End date", "date", "primary", "non-empty", order=2)
                 },
                 methods={
                     "create": a.method("Create", "primary")

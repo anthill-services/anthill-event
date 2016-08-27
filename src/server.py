@@ -55,7 +55,8 @@ class EventsServer(common.server.Server):
             (r"/events", handler.EventsHandler),
             (r"/event/(.*)/leave", handler.EventLeaveHandler),
             (r"/event/(.*)/join", handler.EventJoinHandler),
-            (r"/event/(.*)/score", handler.EventScoreHandler),
+            (r"/event/(.*)/score/add", handler.EventAddScoreHandler),
+            (r"/event/(.*)/score/update", handler.EventUpdateScoreHandler),
             (r"/event/(.*)/profile", handler.EventProfileHandler),
         ]
 

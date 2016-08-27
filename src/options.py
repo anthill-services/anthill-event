@@ -39,3 +39,10 @@ define("db_name",
        default="event",
        type=str,
        help="MySQL database name")
+
+# Events
+
+define("schedule_update",
+       default=300,
+       type=int,
+       help="A period in seconds to update a scheduled actions")

@@ -129,7 +129,7 @@ class EventProfileHandler(AuthenticatedHandler):
             self.dumps(new_data)
 
 
-class EventScoreHandler(AuthenticatedHandler):
+class EventAddScoreHandler(AuthenticatedHandler):
     @scoped()
     @coroutine
     def post(self, event_id):
@@ -176,10 +176,61 @@ class EventScoreHandler(AuthenticatedHandler):
                 "Failed to update score for the user '{0}' in the event '{1}': {2}".format(
                     account_id, event_id, e))
         else:
-            result = {
+            self.dumps({
                 "score": new_score
-            }
-            self.dumps(result)
+            })
+
+
+class EventUpdateScoreHandler(AuthenticatedHandler):
+    @scoped()
+    @coroutine
+    def post(self, event_id):
+
+        token = self.token
+
+        try:
+            score = float(self.get_argument("score"))
+        except:
+            raise HTTPError(400, "Not a valid score.")
+
+        account_id = token.account
+        gamespace_id = token.get(AccessToken.GAMESPACE)
+
+        leaderboard_info = self.get_argument("leaderboard_info")
+        if leaderboard_info:
+            try:
+                leaderboard_info = json.loads(leaderboard_info)
+            except (KeyError, ValueError):
+                raise HTTPError(400, "JSON 'leaderboard_info' is corrupted")
+
+        try:
+            new_score = yield self.application.events.update_score(
+                gamespace_id,
+                event_id,
+                account_id,
+                score,
+                leaderboard_info)
+
+        except EventError as e:
+            raise HTTPError(
+                e.code,
+                str(e))
+
+        except EventNotFound:
+            raise HTTPError(
+                404,
+                "Event '%s' was not found." % event_id)
+
+        except Exception as e:
+            logging.error(traceback.format_exc())
+            raise HTTPError(
+                500,
+                "Failed to update score for the user '{0}' in the event '{1}': {2}".format(
+                    account_id, event_id, e))
+        else:
+            self.dumps({
+                "score": new_score
+            })
 
 
 class EventsHandler(AuthenticatedHandler):

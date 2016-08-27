@@ -9,6 +9,8 @@ from common.database import DuplicateError, DatabaseError
 from common.profile import ProfileError
 from common.internal import Internal, InternalError
 from common.model import Model
+from common.schedule import Schedule
+from common.options import options
 
 import common.database
 import common.keyvalue
@@ -19,17 +21,19 @@ class CategoryNotFound(Exception):
     pass
 
 
-class EventAdapter(object):
+EVENT_STATUS_NOT_STARTED = "not_started"
+EVENT_STATUS_ENDED = "ended"
+EVENT_STATUS_ACTIVE = "active"
 
-    STATUS_NOT_STARTED = "not_started"
-    STATUS_COMPLETED = "completed"
-    STATUS_ACTIVE = "active"
+
+class EventAdapter(object):
 
     def __init__(self, record):
         self.item_id = record.get("id")
         self.category_id = record.get("category_id", 0)
         self.category = record.get("category_name", "")
         self.data = record.get("data_json") or {}
+        self.status = record.get("status")
         self.custom = record.get("custom")
         self.time_start = record["start_dt"]
         self.time_end = record["end_dt"]
@@ -48,7 +52,7 @@ class EventAdapter(object):
                 "end": str(self.time_end),
                 "left": self.time_left()
             },
-            "status": self.status(),
+            "status": self.status,
             "joined": self.joined,
             "score": self.score
         }
@@ -69,16 +73,8 @@ class EventAdapter(object):
 
         return e
 
-    def status(self):
-        dt_now = datetime.datetime.utcnow()
-
-        if dt_now < self.time_start:
-            return EventAdapter.STATUS_NOT_STARTED
-
-        if dt_now >= self.time_end:
-            return EventAdapter.STATUS_COMPLETED
-
-        return EventAdapter.STATUS_ACTIVE
+    def is_active(self):
+        return self.status == EVENT_STATUS_ACTIVE
 
     def time_left(self):
         return int((self.time_end - datetime.datetime.utcnow()).total_seconds())
@@ -111,6 +107,152 @@ class EventNotFound(Exception):
         self.event_id = event_id
 
 
+class EventSchedule(Schedule):
+
+    def __init__(self, events, check_period):
+        super(EventSchedule, self).__init__(check_period)
+        self.events = events
+        self.db = events.db
+        self.check_period = check_period
+
+    @coroutine
+    def __end_event__(self, gamespace, event_id, tournament):
+
+        logging.info("Event {0} ended!".format(event_id))
+
+        if tournament:
+            top_entries = yield self.events.__get_leaderboard_top__(gamespace, event_id)
+
+            if top_entries:
+                messages = []
+                entries = top_entries["data"]
+
+                for entry in entries:
+                    messages.append({
+                        "recipient_class": "user",
+                        "recipient_key": entry["account"],
+                        "payload": {
+                            "action": "event_tournament_result",
+                            "event": event_id,
+                            "score": entry["score"],
+                            "rank": entry["rank"]
+                        }
+                    })
+
+                logging.info("Delivering mesages about event being ended to: " +
+                             str([m["recipient_key"] for m in messages]))
+
+                yield self.events.internal.rpc(
+                    "message", "send_batch",
+                    gamespace=gamespace, sender=0, messages=messages)
+
+        yield self.db.execute(
+            """
+                UPDATE `events`
+                SET `status`=%s, `processing`=0
+                WHERE id=%s;
+            """, EVENT_STATUS_ENDED, event_id)
+
+    @coroutine
+    def __start_event__(self, gamespace, event_id):
+
+        logging.info("Event {0} started!".format(event_id))
+
+        yield self.db.execute(
+            """
+                UPDATE `events`
+                SET `status`=%s, `processing`=0
+                WHERE id=%s;
+            """, EVENT_STATUS_ACTIVE, event_id)
+
+    def event_end_cancelled(self, gamespace, event_id, tournament):
+        logging.warn("Event {0} cancelled for ending".format(event_id))
+
+        return self.db.execute(
+            """
+                UPDATE `events`
+                SET `processing`=0
+                WHERE id=%s;
+            """, event_id)
+
+    def event_start_cancelled(self, gamespace, event_id):
+        logging.warn("Event {0} cancelled for starting".format(event_id))
+
+        return self.db.execute(
+            """
+                UPDATE `events`
+                SET `processing`=0
+                WHERE id=%s;
+            """, event_id)
+
+    @coroutine
+    def cancelled(self, call_name, *args, **kwargs):
+
+        handlers = {
+            "end_event": self.event_end_cancelled,
+            "start_event": self.event_start_cancelled
+        }
+
+        yield handlers[call_name](*args, **kwargs)
+
+    @coroutine
+    def update(self):
+        with (yield self.db.acquire(auto_commit=False)) as db:
+            events = yield db.query(
+                """
+                    SELECT `id`, `start_dt`, `end_dt`, `status`, `tournament`, `gamespace_id`
+                    FROM `events`
+                    WHERE
+                        `enabled`='true' AND `processing`=0 AND
+
+                        ((`status`=%s AND NOW() + INTERVAL %s SECOND > `end_dt`)
+                        OR
+                        (`status`=%s AND NOW() + INTERVAL %s SECOND > `start_dt`))
+
+                    FOR UPDATE;
+                """, EVENT_STATUS_ACTIVE, self.check_period, EVENT_STATUS_NOT_STARTED, self.check_period)
+
+            events_ids = [event["id"] for event in events]
+
+            if events:
+                logging.info("Scheduled {0} events".format(len(events)))
+
+                for event in events:
+                    gamespace = event["gamespace_id"]
+                    tournament = event["tournament"] == "true"
+
+                    if event["status"] == EVENT_STATUS_ACTIVE:
+                        end_dt = event["end_dt"] - datetime.datetime.now()
+
+                        logging.info("Event {0} will end in {1}.".format(event["id"], end_dt))
+
+                        self.call(
+                            'end_event',
+                            self.__end_event__,
+                            event["end_dt"] - datetime.datetime.now(),
+                            gamespace, event["id"], tournament)
+                    else:
+                        start_dt = event["start_dt"] - datetime.datetime.now()
+
+                        logging.info("Event {0} will start in {1}.".format(event["id"], start_dt))
+
+                        self.call(
+                            'start_event',
+                            self.__start_event__,
+                            start_dt,
+                            gamespace, event["id"])
+
+                yield db.execute(
+                    """
+                        UPDATE `events`
+                        SET `processing`=1
+                        WHERE id IN (%s);
+                    """, events_ids
+                )
+
+            yield db.commit()
+
+
 class EventsModel(Model):
     DT_FMT = "%Y-%m-%d %H:%M:%S"
 
@@ -131,12 +273,40 @@ class EventsModel(Model):
     def __init__(self, db):
         self.db = db
         self.internal = Internal()
+        self.schedule = EventSchedule(self, options.schedule_update)
 
     def get_setup_tables(self):
         return ["common_scheme", "category_scheme", "events", "event_participants"]
 
     def get_setup_db(self):
         return self.db
+
+    @coroutine
+    def started(self):
+        yield super(EventsModel, self).started()
+
+        self.schedule.start()
+
+    @coroutine
+    def stopped(self):
+        yield super(EventsModel, self).stopped()
+        yield self.schedule.stop()
+
+    @coroutine
+    def __get_leaderboard_top__(self, gamespace, event_id):
+        leaderboard_name = EventAdapter.tournament_leaderboard_name(event_id)
+        leaderboard_order = EventAdapter.tournament_leaderboard_order()
+
+        try:
+            top_entries = yield self.internal.request(
+                "leaderboard", "get_top",
+                gamespace=gamespace, sort_order=leaderboard_order,
+                leaderboard_name=leaderboard_name)
+        except InternalError as e:
+            logging.exception("Failed to get leaderboard: " + e.message)
+            raise Return(None)
+        else:
+            raise Return(top_entries)
 
     @coroutine
     def __post_score_to_leaderboard__(self, account, gamespace, score, event_id, display_name, expire_in, profile):
@@ -154,6 +324,15 @@ class EventsModel(Model):
 
     @coroutine
     def add_score(self, gamespace_id, event_id, account_id, score, leaderboard_info):
+        """
+        Adds score to users record per event.
+        :param gamespace_id: Current gamespace
+        :param event_id: Event this score adds to
+        :param account_id: User account
+        :param score: Amount to add
+        :param leaderboard_info: A dict will be passed to appropriate leaderboard in
+                case the tournament is enabled
+        """
 
         if not isinstance(score, float):
             raise EventError("Score is not a float")
@@ -168,10 +347,9 @@ class EventsModel(Model):
             res = yield db.get(
                 """
                     SELECT `score`, (
-                            SELECT CONCAT('active', '|', `tournament`)
+                            SELECT CONCAT(`status`, '|', `tournament`)
                             FROM `events` AS e
-                            WHERE e.`id` = p.`event_id` AND
-                                NOW() BETWEEN e.`start_dt` AND e.`end_dt`
+                            WHERE e.`id` = p.`event_id`
                         ) AS `event_status` FROM `event_participants` AS p
                     WHERE `event_id` = %s AND `account_id` = %s AND `gamespace_id` = %s AND `status` = %s
                     FOR UPDATE;
@@ -186,7 +364,7 @@ class EventsModel(Model):
                 if event_status:
                     active, tournament = event_status.split("|")
 
-                if active != "active":
+                if active != EVENT_STATUS_ACTIVE:
                     yield db.commit()
                     raise EventError("Event is not active", code=409)
 
@@ -232,6 +410,57 @@ class EventsModel(Model):
         raise Return(new_score)
 
     @coroutine
+    def update_score(self, gamespace_id, event_id, account_id, score, leaderboard_info):
+        """
+        Updates user's score per event.
+        :param gamespace_id: Current gamespace
+        :param event_id: Event this score adds to
+        :param account_id: User account
+        :param score: A value to set
+        :param leaderboard_info: A dict will be passed to appropriate leaderboard in
+                case the tournament is enabled
+        """
+
+        if not isinstance(score, float):
+            raise EventError("Score is not a float")
+
+        with (yield self.db.acquire()) as db:
+
+            # lookup for event information
+            event = yield self.get_event(gamespace_id, event_id, db=db)
+
+            if not event.is_active():
+                raise EventError("Event is not active!")
+
+            yield db.insert(
+                """
+                    INSERT INTO `event_participants`
+                    (`account_id`, `gamespace_id`, `event_id`, `status`, `score`, `custom`)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE `score`=VALUES(`score`);
+                """,
+                account_id, gamespace_id, event_id, "JOINED", score, "{}")
+
+            if event.tournament:
+                if leaderboard_info is None:
+                    raise EventError("leaderboard_info is required")
+
+                display_name = leaderboard_info.get("display_name")
+                expire_in = leaderboard_info.get("expire_in")
+                profile = leaderboard_info.get("profile", {})
+
+                if not display_name or not expire_in:
+                    raise EventError("Cannot post score to tournament: "
+                                     "leaderboard_info should have 'display_name' and 'expire_in' fields",
+                                     400)
+
+                yield self.__post_score_to_leaderboard__(
+                    account_id, gamespace_id, score, event_id,
+                    display_name, expire_in, profile)
+
+        raise Return(score)
+
+    @coroutine
     def clone_category_scheme(self, gamespace_id, category_id):
         logging.debug("Cloning event category '%s'", category_id)
         category = yield self.get_category(gamespace_id, category_id)
@@ -272,12 +501,14 @@ class EventsModel(Model):
 
         event_id = yield self.db.insert(
             """
-                INSERT INTO events
-                (gamespace_id, category_id, enabled, tournament, category_name, data_json, start_dt, end_dt)
+                INSERT INTO `events`
+                (`gamespace_id`, `category_id`, `enabled`, `status`, `tournament`, `category_name`,
+                    `data_json`, `start_dt`, `end_dt`)
                 VALUES
-                (%s, %s, %s, %s, %s, %s, %s, %s)
+                (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
-            gamespace_id, category_id, enabled, tournament, category.name, ujson.dumps(data_json),
+            gamespace_id, category_id, enabled, EVENT_STATUS_NOT_STARTED,
+            tournament, category.name, ujson.dumps(data_json),
             start_dt, end_dt)
 
         raise Return(event_id)
@@ -353,9 +584,9 @@ class EventsModel(Model):
         raise Return(common_scheme)
 
     @coroutine
-    def get_event(self, gamespace_id, event_id):
+    def get_event(self, gamespace_id, event_id, db=None):
 
-        event = yield self.db.get(
+        event = yield (db or self.db).get(
             """
                 SELECT *
                 FROM `events`
@@ -414,12 +645,8 @@ class EventsModel(Model):
 
             if event_data:
                 event = EventAdapter(event_data)
-                status = event.status()
-
-                if status == EventAdapter.STATUS_NOT_STARTED:
-                    raise EventError("Event has not started yet")
-                elif status == EventAdapter.STATUS_COMPLETED:
-                    raise EventError("Event has been ended")
+                if not event.is_active():
+                    raise EventError("Event is not active")
 
                 try:
                     result = yield db_conn.insert(

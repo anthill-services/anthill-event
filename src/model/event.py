@@ -303,7 +303,11 @@ class EventsModel(Model):
                 gamespace=gamespace, sort_order=leaderboard_order,
                 leaderboard_name=leaderboard_name)
         except InternalError as e:
-            logging.exception("Failed to get leaderboard: " + e.message)
+            if e.code == 404:
+                logging.info("No such leaderboard: " + leaderboard_name)
+            else:
+                logging.exception("Failed to get leaderboard: " + e.message)
+
             raise Return(None)
         else:
             raise Return(top_entries)

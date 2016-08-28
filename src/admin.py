@@ -31,7 +31,7 @@ class CategoriesController(a.AdminController):
             ]),
             a.links("Navigate", [
                 a.link("events", "Go back"),
-                a.link("common", "Edit common template"),
+                a.link("common", "Edit common template", icon="flask"),
                 a.link("new_category", "Create a new category", icon="plus"),
                 a.link("https://github.com/jdorn/json-editor#default-properties", "See docs", icon="book")
             ])
@@ -97,7 +97,7 @@ class CategoryController(a.AdminController):
             ]),
             a.links("Navigate", [
                 a.link("events", "Go back"),
-                a.link("common", "Edit common template"),
+                a.link("common", "Edit common template", icon="flask"),
                 a.link("events", "See events of this category", category=self.context.get("category_id")),
                 a.link("https://github.com/jdorn/json-editor#default-properties", "See docs", icon="book")
             ])
@@ -477,7 +477,7 @@ class NewCategoryController(a.AdminController):
             ),
             a.links("Navigate", [
                 a.link("categories", "Go back"),
-                a.link("common", "Edit common template"),
+                a.link("common", "Edit common template", icon="flask"),
                 a.link("events", "See events of this category", category=self.context.get("category_id")),
                 a.link("https://github.com/jdorn/json-editor#default-properties", "See docs", icon="book")
             ])

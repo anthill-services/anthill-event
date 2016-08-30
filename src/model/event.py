@@ -131,8 +131,8 @@ class EventSchedule(Schedule):
                     messages.append({
                         "recipient_class": "user",
                         "recipient_key": entry["account"],
+                        "message_type": "event_tournament_result",
                         "payload": {
-                            "action": "event_tournament_result",
                             "event": event_id,
                             "score": entry["score"],
                             "rank": entry["rank"]

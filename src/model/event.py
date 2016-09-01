@@ -127,13 +127,15 @@ class EventSchedule(Schedule):
                 messages = []
                 entries = top_entries["data"]
 
+                event_info = yield self.events.get_event(gamespace, event_id)
+
                 for entry in entries:
                     messages.append({
                         "recipient_class": "user",
                         "recipient_key": entry["account"],
                         "message_type": "event_tournament_result",
                         "payload": {
-                            "event": event_id,
+                            "event": event_info.dump(),
                             "score": entry["score"],
                             "rank": entry["rank"]
                         }

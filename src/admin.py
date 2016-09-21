@@ -33,7 +33,7 @@ class CategoriesController(a.AdminController):
                 a.link("events", "Go back"),
                 a.link("common", "Edit common template", icon="flask"),
                 a.link("new_category", "Create a new category", icon="plus"),
-                a.link("https://github.com/jdorn/json-editor#default-properties", "See docs", icon="book")
+                a.link("https://spacetelescope.github.io/understanding-json-schema/index.html", "See docs", icon="book")
             ])
         ]
 
@@ -99,7 +99,7 @@ class CategoryController(a.AdminController):
                 a.link("events", "Go back"),
                 a.link("common", "Edit common template", icon="flask"),
                 a.link("events", "See events of this category", category=self.context.get("category_id")),
-                a.link("https://github.com/jdorn/json-editor#default-properties", "See docs", icon="book")
+                a.link("https://spacetelescope.github.io/understanding-json-schema/index.html", "See docs", icon="book")
             ])
         ]
 
@@ -196,7 +196,7 @@ class CommonController(a.AdminController):
             }, data=data),
             a.links("Navigate", [
                 a.link("@back", "Go back"),
-                a.link("https://github.com/jdorn/json-editor#default-properties", "See docs", icon="book")
+                a.link("https://spacetelescope.github.io/understanding-json-schema/index.html", "See docs", icon="book")
             ])
         ]
 
@@ -249,6 +249,7 @@ class EventController(a.AdminController):
 
         enabled = "true" if event.enabled else "false"
         tournament = "true" if event.tournament else "false"
+        clustered = "true" if event.clustered else "false"
         start_dt = str(event.time_start)
         end_dt = str(event.time_end)
 
@@ -262,6 +263,7 @@ class EventController(a.AdminController):
         raise Return({
             "enabled": enabled,
             "tournament": tournament,
+            "clustered": clustered,
             "event": event,
             "start_dt": start_dt,
             "end_dt": end_dt,
@@ -284,10 +286,12 @@ class EventController(a.AdminController):
                 fields={
                     "event_data": a.field(
                         "Event properties", "dorn", "primary",
-                        schema=data["scheme"], order=5
+                        schema=data["scheme"], order=6
                     ),
                     "enabled": a.field("Is event enabled", "switch", "primary", order=3),
                     "tournament": a.field("Is tournament enabled", "switch", "primary", order=4),
+                    "clustered": a.field("Is tournament's leaderboard clustered", "switch", "primary",
+                                         readonly=True, order=5),
                     "category_name": a.field("Category", "readonly", "primary"),
                     "start_dt": a.field("Start date", "date", "primary", order=1),
                     "end_dt": a.field("End date", "date", "primary", order=2)
@@ -380,7 +384,7 @@ class EventsController(a.AdminController):
             tbl_tr = {
                 "edit": [a.button("event", "Edit", "default", event_id=event.item_id)],
                 "enabled": "yes" if event.enabled else "no",
-                "tournament": "yes" if event.tournament else "no",
+                "tournament": "yes" + (" (clustered)" if event.clustered else "") if event.tournament else "no",
                 "name": title,
                 "description": description,
                 "category": event.category,
@@ -479,7 +483,7 @@ class NewCategoryController(a.AdminController):
                 a.link("categories", "Go back"),
                 a.link("common", "Edit common template", icon="flask"),
                 a.link("events", "See events of this category", category=self.context.get("category_id")),
-                a.link("https://github.com/jdorn/json-editor#default-properties", "See docs", icon="book")
+                a.link("https://spacetelescope.github.io/understanding-json-schema/index.html", "See docs", icon="book")
             ])
         ]
 
@@ -492,12 +496,12 @@ class NewCategoryController(a.AdminController):
 
 class NewEventController(a.AdminController):
     @coroutine
-    def create(self, event_data, start_dt, end_dt, enabled="false", tournament="false", **ignore):
+    def create(self, event_data, start_dt, end_dt, enabled="false", tournament="false", clustered="false", **ignore):
         category_id = self.context.get("category")
 
         try:
             event_id = yield self.application.events.create_event(
-                self.gamespace, category_id, enabled, tournament, ujson.loads(event_data), start_dt, end_dt
+                self.gamespace, category_id, enabled, tournament, clustered, ujson.loads(event_data), start_dt, end_dt
             )
         except CategoryNotFound:
             raise a.ActionError("Category not found")
@@ -577,6 +581,9 @@ class NewEventController(a.AdminController):
                     ),
                     "enabled": a.field("Is event enabled", "switch", "primary", order=3),
                     "tournament": a.field("Is tournament enabled", "switch", "primary", order=4),
+                    "clustered": a.field("Is tournament's leaderboard clustered (cannot be changed later)",
+                                         "switch", "primary", order=4),
+
                     "start_dt": a.field("Start date", "date", "primary", "non-empty", order=1),
                     "end_dt": a.field("End date", "date", "primary", "non-empty", order=2)
                 },

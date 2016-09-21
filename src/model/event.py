@@ -1,4 +1,3 @@
-
 import datetime
 import ujson
 import logging
@@ -27,7 +26,6 @@ EVENT_STATUS_ACTIVE = "active"
 
 
 class EventAdapter(object):
-
     def __init__(self, record):
         self.item_id = record.get("id")
         self.category_id = record.get("category_id", 0)
@@ -40,6 +38,7 @@ class EventAdapter(object):
         self.score = record.get("score") or 0
         self.enabled = record.get("enabled", "false") == "true"
         self.tournament = record.get("tournament", "false") == "true"
+        self.clustered = record.get("clustered", "true") == "true"
         self.joined = record.get("status", "NONE") == "JOINED"
 
     def dump(self):
@@ -63,7 +62,7 @@ class EventAdapter(object):
             e.update({
                 "tournament":
                     {
-                        "leaderboard_name": EventAdapter.tournament_leaderboard_name(self.item_id),
+                        "leaderboard_name": EventAdapter.tournament_leaderboard_name(self.item_id, self.clustered),
                         "leaderboard_order": EventAdapter.tournament_leaderboard_order()
                     }
             })
@@ -80,8 +79,8 @@ class EventAdapter(object):
         return int((self.time_end - datetime.datetime.utcnow()).total_seconds())
 
     @staticmethod
-    def tournament_leaderboard_name(event_id):
-        return "event_" + str(event_id)
+    def tournament_leaderboard_name(event_id, clustered):
+        return ("@" if clustered else "") + "event_" + str(event_id)
 
     @staticmethod
     def tournament_leaderboard_order():
@@ -108,7 +107,6 @@ class EventNotFound(Exception):
 
 
 class EventSchedule(Schedule):
-
     def __init__(self, events, check_period):
         super(EventSchedule, self).__init__(check_period)
         self.events = events
@@ -116,37 +114,39 @@ class EventSchedule(Schedule):
         self.check_period = check_period
 
     @coroutine
-    def __end_event__(self, gamespace, event_id, tournament):
+    def __end_event__(self, gamespace, event):
 
+        event_id = event.item_id
         logging.info("Event {0} ended!".format(event_id))
 
-        if tournament:
-            top_entries = yield self.events.__get_leaderboard_top__(gamespace, event_id)
+        if event.tournament:
+            top_entries = yield self.events.__get_leaderboard_top__(gamespace, event_id, event.clustered)
+            event_info = yield self.events.get_event(gamespace, event_id)
 
-            if top_entries:
-                messages = []
-                entries = top_entries["data"]
+            for cluster in top_entries:
 
-                event_info = yield self.events.get_event(gamespace, event_id)
+                if cluster:
+                    messages = []
+                    entries = cluster["data"]
 
-                for entry in entries:
-                    messages.append({
-                        "recipient_class": "user",
-                        "recipient_key": entry["account"],
-                        "message_type": "event_tournament_result",
-                        "payload": {
-                            "event": event_info.dump(),
-                            "score": entry["score"],
-                            "rank": entry["rank"]
-                        }
-                    })
+                    for entry in entries:
+                        messages.append({
+                            "recipient_class": "user",
+                            "recipient_key": entry["account"],
+                            "message_type": "event_tournament_result",
+                            "payload": {
+                                "event": event_info.dump(),
+                                "score": entry["score"],
+                                "rank": entry["rank"]
+                            }
+                        })
 
-                logging.info("Delivering mesages about event being ended to: " +
-                             str([m["recipient_key"] for m in messages]))
+                    logging.info("Delivering messages about event being ended to: @" +
+                                 str([m["recipient_key"] for m in messages]))
 
-                yield self.events.internal.rpc(
-                    "message", "send_batch",
-                    gamespace=gamespace, sender=0, messages=messages)
+                    yield self.events.internal.rpc(
+                        "message", "send_batch",
+                        gamespace=gamespace, sender=0, messages=messages)
 
         yield self.db.execute(
             """
@@ -156,7 +156,9 @@ class EventSchedule(Schedule):
             """, EVENT_STATUS_ENDED, event_id)
 
     @coroutine
-    def __start_event__(self, gamespace, event_id):
+    def __start_event__(self, gamespace, event):
+
+        event_id = event.item_id
 
         logging.info("Event {0} started!".format(event_id))
 
@@ -202,7 +204,7 @@ class EventSchedule(Schedule):
         with (yield self.db.acquire(auto_commit=False)) as db:
             events = yield db.query(
                 """
-                    SELECT `id`, `start_dt`, `end_dt`, `status`, `tournament`, `gamespace_id`
+                    SELECT `id`, `start_dt`, `end_dt`, `status`, `tournament`, `gamespace_id`, `clustered`
                     FROM `events`
                     WHERE
                         `enabled`='true' AND `processing`=0 AND
@@ -221,7 +223,6 @@ class EventSchedule(Schedule):
 
                 for event in events:
                     gamespace = event["gamespace_id"]
-                    tournament = event["tournament"] == "true"
 
                     if event["status"] == EVENT_STATUS_ACTIVE:
                         end_dt = event["end_dt"] - datetime.datetime.now()
@@ -232,7 +233,7 @@ class EventSchedule(Schedule):
                             'end_event',
                             self.__end_event__,
                             event["end_dt"] - datetime.datetime.now(),
-                            gamespace, event["id"], tournament)
+                            gamespace, EventAdapter(event))
                     else:
                         start_dt = event["start_dt"] - datetime.datetime.now()
 
@@ -242,7 +243,7 @@ class EventSchedule(Schedule):
                             'start_event',
                             self.__start_event__,
                             start_dt,
-                            gamespace, event["id"])
+                            gamespace, EventAdapter(event))
 
                 yield db.execute(
                     """
@@ -259,8 +260,8 @@ class EventsModel(Model):
     DT_FMT = "%Y-%m-%d %H:%M:%S"
 
     @coroutine
-    def __delete_leaderboard__(self, event_id, gamespace):
-        leaderboard_name = EventAdapter.tournament_leaderboard_name(event_id)
+    def __delete_leaderboard__(self, event_id, gamespace, clustered):
+        leaderboard_name = EventAdapter.tournament_leaderboard_name(event_id, clustered)
         leaderboard_order = EventAdapter.tournament_leaderboard_order()
 
         try:
@@ -295,8 +296,8 @@ class EventsModel(Model):
         yield self.schedule.stop()
 
     @coroutine
-    def __get_leaderboard_top__(self, gamespace, event_id):
-        leaderboard_name = EventAdapter.tournament_leaderboard_name(event_id)
+    def __get_leaderboard_top__(self, gamespace, event_id, clustered):
+        leaderboard_name = EventAdapter.tournament_leaderboard_name(event_id, clustered)
         leaderboard_order = EventAdapter.tournament_leaderboard_order()
 
         try:
@@ -315,8 +316,9 @@ class EventsModel(Model):
             raise Return(top_entries)
 
     @coroutine
-    def __post_score_to_leaderboard__(self, account, gamespace, score, event_id, display_name, expire_in, profile):
-        leaderboard_name = EventAdapter.tournament_leaderboard_name(event_id)
+    def __post_score_to_leaderboard__(self, account, gamespace, score, event_id, clustered,
+                                      display_name, expire_in, profile):
+        leaderboard_name = EventAdapter.tournament_leaderboard_name(event_id, clustered)
         leaderboard_order = EventAdapter.tournament_leaderboard_order()
 
         try:
@@ -344,7 +346,6 @@ class EventsModel(Model):
             raise EventError("Score is not a float")
 
         new_score = 0
-        tournament = False
 
         with (yield self.db.acquire(auto_commit=False)) as db:
 
@@ -353,7 +354,7 @@ class EventsModel(Model):
             res = yield db.get(
                 """
                     SELECT `score`, (
-                            SELECT CONCAT(`status`, '|', `tournament`)
+                            SELECT CONCAT(`status`, '|', `tournament`, '|', `clustered`)
                             FROM `events` AS e
                             WHERE e.`id` = p.`event_id`
                         ) AS `event_status` FROM `event_participants` AS p
@@ -367,8 +368,10 @@ class EventsModel(Model):
                 event_status = res["event_status"]
                 active = False
 
-                if event_status:
-                    active, tournament = event_status.split("|")
+                if not event_status:
+                    raise EventError("Bad event (not event_status)", code=500)
+
+                active, tournament, clustered = event_status.split("|")
 
                 if active != EVENT_STATUS_ACTIVE:
                     yield db.commit()
@@ -379,8 +382,8 @@ class EventsModel(Model):
             else:
                 # if user has not been participated in this event, join him
                 yield db.commit()
-                yield self.join_event(gamespace_id, event_id, account_id, score=score,
-                                      leaderboard_info=leaderboard_info)
+                event = yield self.join_event(gamespace_id, event_id, account_id, score=score,
+                                              leaderboard_info=leaderboard_info)
                 raise Return(score)
 
             # add the score from db to the posted score
@@ -410,7 +413,7 @@ class EventsModel(Model):
                                      "leaderboard_info should have 'display_name' and 'expire_in' fields", 400)
 
                 yield self.__post_score_to_leaderboard__(
-                    account_id, gamespace_id, new_score, event_id,
+                    account_id, gamespace_id, new_score, event_id, clustered,
                     display_name, expire_in, profile)
 
         raise Return(new_score)
@@ -461,7 +464,7 @@ class EventsModel(Model):
                                      400)
 
                 yield self.__post_score_to_leaderboard__(
-                    account_id, gamespace_id, score, event_id,
+                    account_id, gamespace_id, score, event_id, event.clustered,
                     display_name, expire_in, profile)
 
         raise Return(score)
@@ -501,20 +504,20 @@ class EventsModel(Model):
         raise Return(result)
 
     @coroutine
-    def create_event(self, gamespace_id, category_id, enabled, tournament, data_json, start_dt, end_dt):
+    def create_event(self, gamespace_id, category_id, enabled, tournament, clustered, data_json, start_dt, end_dt):
 
         category = yield self.get_category(gamespace_id, category_id)
 
         event_id = yield self.db.insert(
             """
                 INSERT INTO `events`
-                (`gamespace_id`, `category_id`, `enabled`, `status`, `tournament`, `category_name`,
+                (`gamespace_id`, `category_id`, `enabled`, `status`, `tournament`, `clustered`, `category_name`,
                     `data_json`, `start_dt`, `end_dt`)
                 VALUES
-                (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             gamespace_id, category_id, enabled, EVENT_STATUS_NOT_STARTED,
-            tournament, category.name, ujson.dumps(data_json),
+            tournament, clustered, category.name, ujson.dumps(data_json),
             start_dt, end_dt)
 
         raise Return(event_id)
@@ -556,7 +559,7 @@ class EventsModel(Model):
             event_id, gamespace_id)
 
         if event.tournament:
-            yield self.__delete_leaderboard__(event_id, gamespace_id)
+            yield self.__delete_leaderboard__(event_id, gamespace_id, event.clustered)
 
     @coroutine
     def get_category(self, gamespace_id, category_id):
@@ -655,7 +658,7 @@ class EventsModel(Model):
                     raise EventError("Event is not active")
 
                 try:
-                    result = yield db_conn.insert(
+                    yield db_conn.insert(
                         """
                             INSERT INTO `event_participants`
                             (`account_id`, `gamespace_id`, `event_id`, `status`, `score`, `custom`)
@@ -676,10 +679,11 @@ class EventsModel(Model):
                                              "leaderboard_info should have 'display_name' and 'expire_in' fields", 400)
 
                         yield self.__post_score_to_leaderboard__(
-                            account_id, gamespace_id, score, event_id,
+                            account_id, gamespace_id, score, event_id, event.clustered,
                             display_name, expire_in, profile)
 
-                    raise Return(result)
+                    raise Return(event)
+
                 except DuplicateError:
                     raise EventError("The user already took part in the event", code=409)
             else:

@@ -37,10 +37,7 @@ class CategoriesController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["event_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["event_admin"]
 
 
@@ -103,10 +100,7 @@ class CategoryController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["event_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["event_admin"]
 
     @coroutine
@@ -165,10 +159,7 @@ class ChooseCategoryController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["event_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["event_admin"]
 
 
@@ -200,10 +191,7 @@ class CommonController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["event_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["event_admin"]
 
     @coroutine
@@ -325,10 +313,7 @@ class EventController(a.AdminController):
             message="Event has been updated",
             event_id=event_id)
 
-    def scopes_read(self):
-        return ["event_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["event_admin"]
 
 
@@ -439,10 +424,7 @@ class EventsController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["event_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["event_admin"]
 
 
@@ -487,10 +469,7 @@ class NewCategoryController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["event_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["event_admin"]
 
 
@@ -598,10 +577,7 @@ class NewEventController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
-        return ["event_admin"]
-
-    def scopes_write(self):
+    def access_scopes(self):
         return ["event_admin"]
 
 
@@ -613,9 +589,5 @@ class RootAdminController(a.AdminController):
             ])
         ]
 
-    def scopes_read(self):
+    def access_scopes(self):
         return ["event_admin"]
-
-    def scopes_write(self):
-        return ["event_admin"]
-

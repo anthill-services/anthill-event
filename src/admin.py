@@ -367,7 +367,7 @@ class EventsController(a.AdminController):
                 description = event.data["description"].get("EN", "unknown")
 
             tbl_tr = {
-                "edit": [a.button("event", "Edit", "default", event_id=event.item_id)],
+                "edit": [a.link("event", event.item_id, icon="calendar", event_id=event.item_id)],
                 "enabled": "yes" if event.enabled else "no",
                 "tournament": "yes" + (" (clustered)" if event.clustered else "") if event.tournament else "no",
                 "name": title,

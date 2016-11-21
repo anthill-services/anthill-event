@@ -121,32 +121,34 @@ class EventSchedule(Schedule):
 
         if event.tournament:
             top_entries = yield self.events.__get_leaderboard_top__(gamespace, event_id, event.clustered)
-            event_info = yield self.events.get_event(gamespace, event_id)
 
-            for cluster in top_entries:
+            if top_entries:
+                event_info = yield self.events.get_event(gamespace, event_id)
 
-                if cluster:
-                    messages = []
-                    entries = cluster["data"]
+                for cluster in top_entries:
 
-                    for entry in entries:
-                        messages.append({
-                            "recipient_class": "user",
-                            "recipient_key": entry["account"],
-                            "message_type": "event_tournament_result",
-                            "payload": {
-                                "event": event_info.dump(),
-                                "score": entry["score"],
-                                "rank": entry["rank"]
-                            }
-                        })
+                    if cluster:
+                        messages = []
+                        entries = cluster["data"]
 
-                    logging.info("Delivering messages about event being ended to: @" +
-                                 str([m["recipient_key"] for m in messages]))
+                        for entry in entries:
+                            messages.append({
+                                "recipient_class": "user",
+                                "recipient_key": entry["account"],
+                                "message_type": "event_tournament_result",
+                                "payload": {
+                                    "event": event_info.dump(),
+                                    "score": entry["score"],
+                                    "rank": entry["rank"]
+                                }
+                            })
 
-                    yield self.events.internal.rpc(
-                        "message", "send_batch",
-                        gamespace=gamespace, sender=0, messages=messages)
+                        logging.info("Delivering messages about event being ended to: @" +
+                                     str([m["recipient_key"] for m in messages]))
+
+                        yield self.events.internal.rpc(
+                            "message", "send_batch",
+                            gamespace=gamespace, sender=0, messages=messages)
 
         yield self.db.execute(
             """

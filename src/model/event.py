@@ -10,6 +10,7 @@ from common.internal import Internal, InternalError
 from common.model import Model
 from common.schedule import Schedule
 from common.options import options
+from common import clamp
 
 import common.database
 import common.keyvalue
@@ -728,6 +729,8 @@ class EventsModel(Model):
 
             import math
             pages = int(math.ceil(float(pages_count["count"]) / float(items_in_page)))
+
+            page = clamp(page, 1, pages)
 
             limit_a = (page - 1) * items_in_page
             limit_b = page * items_in_page

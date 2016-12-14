@@ -721,16 +721,8 @@ class EventsModel(Model):
             params.append(category_id)
 
         with (yield self.db.acquire(auto_commit=False)) as db:
-            pages_count = yield db.get("""
-                SELECT COUNT(*) as `count`
-                FROM `events`
-                WHERE gamespace_id=%s {0};
-            """.format("".join(filters)), gamespace_id, *params)
-
             import math
-            pages = int(math.ceil(float(pages_count["count"]) / float(items_in_page)))
-
-            page = clamp(page, 1, pages)
+            page = max(page, 1)
 
             limit_a = (page - 1) * items_in_page
             limit_b = page * items_in_page
@@ -739,12 +731,19 @@ class EventsModel(Model):
 
             events = yield db.query(
                 """
-                    SELECT *
+                    SELECT SQL_CALC_FOUND_ROWS *
                     FROM `events`
                     WHERE gamespace_id=%s {0}
                     ORDER BY `start_dt` ASC
                     LIMIT %s, %s;
                 """.format("".join(filters)), gamespace_id, *params)
+
+            rows = yield db.get(
+                """
+                    SELECT FOUND_ROWS() AS count;
+                """)
+
+            pages = int(math.ceil(float(rows["count"]) / float(items_in_page)))
 
             result = [EventAdapter(event) for event in events], pages
             raise Return(result)

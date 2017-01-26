@@ -30,7 +30,7 @@ class CategoriesController(a.AdminController):
                 for category in data["categories"]
             ]),
             a.links("Navigate", [
-                a.link("events", "Go back"),
+                a.link("events", "Go back", icon="chevron-left"),
                 a.link("common", "Edit common template", icon="flask"),
                 a.link("new_category", "Create a new category", icon="plus"),
                 a.link("https://spacetelescope.github.io/understanding-json-schema/index.html", "See docs", icon="book")
@@ -93,7 +93,7 @@ class CategoryController(a.AdminController):
                 }, data=data),
             ]),
             a.links("Navigate", [
-                a.link("events", "Go back"),
+                a.link("events", "Go back", icon="chevron-left"),
                 a.link("common", "Edit common template", icon="flask"),
                 a.link("events", "See events of this category", category=self.context.get("category_id")),
                 a.link("https://spacetelescope.github.io/understanding-json-schema/index.html", "See docs", icon="book")
@@ -154,7 +154,7 @@ class ChooseCategoryController(a.AdminController):
                 }, data=data
             ),
             a.links("Navigation", links=[
-                a.link("events", "Go back"),
+                a.link("events", "Go back", icon="chevron-left"),
                 a.link("categories", "Manage categories", "list-alt")
             ])
         ]
@@ -186,7 +186,7 @@ class CommonController(a.AdminController):
                 "update": a.method("Update", "primary"),
             }, data=data),
             a.links("Navigate", [
-                a.link("@back", "Go back"),
+                a.link("@back", "Go back", icon="chevron-left"),
                 a.link("https://spacetelescope.github.io/understanding-json-schema/index.html", "See docs", icon="book")
             ])
         ]
@@ -291,7 +291,7 @@ class EventController(a.AdminController):
                 data=data
             ),
             a.links("Navigate", [
-                a.link("events", "Go back", category=category),
+                a.link("events", "Go back", icon="chevron-left", category=category),
                 a.link("category", "Edit category", category_id=category),
                 a.link("new_event", "Clone event", icon="clone",
                        clone=self.context.get("event_id"),
@@ -462,7 +462,7 @@ class NewCategoryController(a.AdminController):
                 "Category template inherits a common template."
             ),
             a.links("Navigate", [
-                a.link("categories", "Go back"),
+                a.link("categories", "Go back", icon="chevron-left"),
                 a.link("common", "Edit common template", icon="flask"),
                 a.link("events", "See events of this category", category=self.context.get("category_id")),
                 a.link("https://spacetelescope.github.io/understanding-json-schema/index.html", "See docs", icon="book")
@@ -572,7 +572,7 @@ class NewEventController(a.AdminController):
                 data=data
             ),
             a.links("Navigate", [
-                a.link("events", "Go back", category=category),
+                a.link("events", "Go back", icon="chevron-left", category=category),
                 a.link("category", "Edit category", category_id=category)
             ])
         ]

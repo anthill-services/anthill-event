@@ -1,9 +1,11 @@
 import datetime
 import ujson
 import logging
+import pytz
 
 from tornado.gen import coroutine, Return
 
+from common.access import utc_time
 from common.database import DuplicateError, DatabaseError
 from common.profile import ProfileError
 from common.internal import Internal, InternalError
@@ -224,28 +226,34 @@ class EventSchedule(Schedule):
             if events:
                 logging.info("Scheduled {0} events".format(len(events)))
 
+                dt = datetime.datetime.fromtimestamp(utc_time(), tz=pytz.utc)
+
                 for event in events:
+
+                    event_start_dt = event["start_dt"].replace(tzinfo=pytz.utc)
+                    event_end_dt = event["end_dt"].replace(tzinfo=pytz.utc)
+
                     gamespace = event["gamespace_id"]
 
                     if event["status"] == EVENT_STATUS_ACTIVE:
-                        end_dt = event["end_dt"] - datetime.datetime.now()
+                        time_left = event_end_dt - dt
 
-                        logging.info("Event {0} will end in {1}.".format(event["id"], end_dt))
+                        logging.info("Event {0} will end in {1}.".format(event["id"], time_left))
 
                         self.call(
                             'end_event',
                             self.__end_event__,
-                            event["end_dt"] - datetime.datetime.now(),
+                            event_end_dt - dt,
                             gamespace, EventAdapter(event))
                     else:
-                        start_dt = event["start_dt"] - datetime.datetime.now()
+                        time_passed = event_start_dt - dt
 
-                        logging.info("Event {0} will start in {1}.".format(event["id"], start_dt))
+                        logging.info("Event {0} will start in {1}.".format(event["id"], time_passed))
 
                         self.call(
                             'start_event',
                             self.__start_event__,
-                            start_dt,
+                            time_passed,
                             gamespace, EventAdapter(event))
 
                 yield db.execute(

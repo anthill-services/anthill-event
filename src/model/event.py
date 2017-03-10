@@ -256,13 +256,14 @@ class EventSchedule(Schedule):
                             time_passed,
                             gamespace, EventAdapter(event))
 
-                yield db.execute(
-                    """
-                        UPDATE `events`
-                        SET `processing`=1
-                        WHERE id IN (%s);
-                    """, events_ids
-                )
+                if events_ids:
+                    yield db.execute(
+                        """
+                            UPDATE `events`
+                            SET `processing`=1
+                            WHERE id IN %s;
+                        """, events_ids
+                    )
 
             yield db.commit()
 
@@ -633,6 +634,9 @@ class EventsModel(Model):
 
     @coroutine
     def get_events(self, gamespace_id, account_id):
+
+        dt = datetime.datetime.fromtimestamp(utc_time(), tz=pytz.utc).strftime('%Y-%m-%d %H:%M:%S')
+
         events = yield self.db.query(
             """
                 SELECT `events`.*,
@@ -645,9 +649,9 @@ class EventsModel(Model):
                 ) AS `participant` ON (`events`.id = `participant`.event_id)
                 WHERE
                     evcat.gamespace_id = %s AND
-                    NOW() BETWEEN `events`.start_dt AND `events`.end_dt
+                    %s BETWEEN `events`.start_dt AND `events`.end_dt
             """,
-            account_id, gamespace_id)
+            account_id, gamespace_id, dt)
 
         raise Return([EventAdapter(event) for event in events])
 

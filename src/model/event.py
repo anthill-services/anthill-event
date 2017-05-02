@@ -12,6 +12,7 @@ from common.internal import Internal, InternalError
 from common.model import Model
 from common.schedule import Schedule
 from common.options import options
+from common.jsonrpc import JsonRPCError
 from common import clamp
 
 import common.database
@@ -130,8 +131,9 @@ class EventSchedule(Schedule):
 
                 for cluster in top_entries:
 
+                    messages = []
+
                     if cluster:
-                        messages = []
                         entries = cluster["data"]
 
                         for entry in entries:
@@ -143,15 +145,18 @@ class EventSchedule(Schedule):
                                     "event": event_info.dump(),
                                     "score": entry["score"],
                                     "rank": entry["rank"]
-                                }
+                                },
+                                "flags": ["remove_delivered"]
                             })
 
-                        logging.info("Delivering messages about event being ended to: @" +
-                                     str([m["recipient_key"] for m in messages]))
-
-                        yield self.events.internal.rpc(
+                    try:
+                        yield self.events.internal.request(
                             "message", "send_batch",
                             gamespace=gamespace, sender=0, messages=messages)
+                    except InternalError as e:
+                        logging.error("Failed to deliver reward messages about completed event: " + str(e))
+                    else:
+                        logging.info("Successfully sent reward messages about completed event to one cluster")
 
         yield self.db.execute(
             """

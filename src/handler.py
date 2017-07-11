@@ -14,137 +14,307 @@ from model.event import EventNotFound, EventError
 
 
 class EventJoinHandler(AuthenticatedHandler):
-    @scoped()
+    @scoped(scopes=["event_join"])
     @coroutine
     def post(self, event_id):
-
         token = self.token
-
         account_id = token.account
-        gamespace_id = token.get(
-            AccessToken.GAMESPACE)
+        gamespace_id = token.get(AccessToken.GAMESPACE)
+
+        score = self.get_argument("score", 0.0)
+        leaderboard_info = self.get_argument("leaderboard_info", None)
+        if leaderboard_info:
+            try:
+                leaderboard_info = json.loads(leaderboard_info)
+            except (KeyError, ValueError):
+                raise HTTPError(400, "JSON 'leaderboard_info' is corrupted")
 
         try:
             yield self.application.events.join_event(
-                gamespace_id,
-                event_id,
-                account_id)
-
+                gamespace_id, event_id, account_id,
+                score=score, leaderboard_info=leaderboard_info)
         except EventError as e:
-            raise HTTPError(
-                e.code,
-                str(e))
-
+            raise HTTPError(e.code, str(e))
         except EventNotFound:
-            raise HTTPError(
-                404,
-                "Event '%s' was not found." % event_id)
-
+            raise HTTPError(404, "Event '%s' was not found." % event_id)
         except Exception as e:
             logging.error(traceback.format_exc())
             raise HTTPError(
                 500,
                 "Failed to engage user '{0}' in the event '{1}': {2}".format(
-                    account_id, event_id, e
-                )
-            )
+                    account_id, event_id, e))
+
+
+class EventGroupJoinHandler(AuthenticatedHandler):
+    @scoped(scopes=["event_join"])
+    @coroutine
+    def post(self, event_id):
+        token = self.token
+        account_id = token.account
+        gamespace_id = token.get(AccessToken.GAMESPACE)
+        group_id = self.get_argument("group_id")
+
+        score = self.get_argument("score", 0.0)
+        leaderboard_info = self.get_argument("leaderboard_info", None)
+        if leaderboard_info:
+            try:
+                leaderboard_info = json.loads(leaderboard_info)
+            except (KeyError, ValueError):
+                raise HTTPError(400, "JSON 'leaderboard_info' is corrupted")
+
+        try:
+            yield self.application.events.join_group_event(
+                gamespace_id, event_id, group_id, account_id,
+                score=score, leaderboard_info=leaderboard_info)
+        except EventError as e:
+            raise HTTPError(e.code, str(e))
+        except EventNotFound:
+            raise HTTPError(404, "Event '%s' was not found." % event_id)
+        except Exception as e:
+            logging.error(traceback.format_exc())
+            raise HTTPError(
+                500,
+                "Failed to engage user '{0}' in the event '{1}': {2}".format(
+                    account_id, event_id, e))
 
 
 class EventLeaveHandler(AuthenticatedHandler):
-    @scoped()
+    @scoped(scopes=["event_leave"])
     @coroutine
     def post(self, event_id):
         account_id = self.current_user.token.account
-        gamespace_id = self.current_user.token.get(
-            AccessToken.GAMESPACE)
+        gamespace_id = self.current_user.token.get(AccessToken.GAMESPACE)
 
         try:
             yield self.application.events.leave_event(
-                gamespace_id,
-                event_id,
-                account_id)
-
+                gamespace_id, event_id, account_id)
         except EventError as e:
-            raise HTTPError(
-                e.code,
-                str(e))
-
+            raise HTTPError(e.code, str(e))
         except EventNotFound:
-            raise HTTPError(
-                404,
-                "Event '%s' was not found." % event_id)
-
+            raise HTTPError(404, "Event '%s' was not found." % event_id)
         except Exception as e:
             logging.error(traceback.format_exc())
             raise HTTPError(
                 500,
                 "Failed to make user '{0}' to leave the event '{1}': {2}".format(
-                    account_id, event_id, e
-                )
-            )
+                    account_id, event_id, e))
 
 
-class EventProfileHandler(AuthenticatedHandler):
-    @scoped(scopes=["event_profile_write"])
+class EventGroupLeaveHandler(AuthenticatedHandler):
+    @scoped(scopes=["event_leave"])
     @coroutine
     def post(self, event_id):
-
-        token = self.token
-
-        try:
-            data = json.loads(self.get_argument("data"))
-        except:
-            raise HTTPError(400, "Not a valid data.")
-
-        merge = self.get_argument("merge", "true") == "true"
-
-        account_id = token.account
-        gamespace_id = token.get(AccessToken.GAMESPACE)
+        account_id = self.current_user.token.account
+        gamespace_id = self.current_user.token.get(AccessToken.GAMESPACE)
+        group_id = self.get_argument("group_id")
 
         try:
-            new_data = yield self.application.events.update_profile(
-                gamespace_id,
-                event_id,
-                account_id,
-                data,
-                merge)
-
+            yield self.application.events.leave_event(
+                gamespace_id, event_id, account_id, group_id=group_id)
         except EventError as e:
-            raise HTTPError(
-                e.code,
-                str(e))
-
+            raise HTTPError(e.code, str(e))
         except EventNotFound:
-            raise HTTPError(
-                404,
-                "Event '%s' was not found." % event_id)
-
+            raise HTTPError(404, "Event '%s' was not found." % event_id)
         except Exception as e:
             logging.error(traceback.format_exc())
             raise HTTPError(
                 500,
-                "Failed to update profile for the user '{0}' in the event '{1}': {2}".format(
+                "Failed to make user '{0}' to leave the event '{1}': {2}".format(
                     account_id, event_id, e))
-        else:
-            self.dumps(new_data)
+
+
+class EventProfileHandler(AuthenticatedHandler):
+    @scoped()
+    @coroutine
+    def get(self, event_id):
+        events = self.application.events
+
+        account_id = self.token.account
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+
+        try:
+            data = yield events.get_profile(
+                gamespace_id, event_id, account_id)
+        except EventError as e:
+            raise HTTPError(e.code, str(e))
+        except EventNotFound:
+            raise HTTPError(404, "Event '%s' was not found." % event_id)
+        except Exception as e:
+            logging.error(traceback.format_exc())
+            raise HTTPError(
+                500, "Failed to update profile for "
+                     "the user '{0}' in the event '{1}': {2}".format(account_id, event_id, e))
+
+        self.dumps(data)
+
+    @scoped(scopes=["event_profile_write"])
+    @coroutine
+    def post(self, event_id):
+        events = self.application.events
+
+        merge = self.get_argument("merge", "true") == "true"
+        account_id = self.token.account
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+
+        try:
+            profile = json.loads(self.get_argument("profile"))
+        except:
+            raise HTTPError(400, "Not a valid profile.")
+
+        try:
+            new_data = yield events.update_profile(
+                gamespace_id, event_id, account_id,
+                profile, merge)
+        except EventError as e:
+            raise HTTPError(e.code, str(e))
+        except EventNotFound:
+            raise HTTPError(404, "Event '%s' was not found." % event_id)
+        except Exception as e:
+            logging.error(traceback.format_exc())
+            raise HTTPError(
+                500, "Failed to update profile for "
+                     "the user '{0}' in the event '{1}': {2}".format(account_id, event_id, e))
+
+        self.dumps(new_data)
+
+
+class EventGroupProfileHandler(AuthenticatedHandler):
+    @scoped(scopes=[])
+    @coroutine
+    def get(self, event_id):
+        events = self.application.events
+
+        account_id = self.token.account
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+        group_id = self.get_argument("group_id")
+
+        try:
+            data = yield events.get_group_profile(
+                gamespace_id, event_id, group_id)
+        except EventError as e:
+            raise HTTPError(e.code, str(e))
+        except EventNotFound:
+            raise HTTPError(404, "Event '%s' was not found." % event_id)
+        except Exception as e:
+            logging.error(traceback.format_exc())
+            raise HTTPError(
+                500, "Failed to get group profile for "
+                     "the user '{0}' in the event '{1}': {2}".format(account_id, event_id, e))
+
+        self.dumps(data)
+
+    @scoped(scopes=["event_profile_write"])
+    @coroutine
+    def post(self, event_id):
+        events = self.application.events
+
+        merge = self.get_argument("merge", "true") == "true"
+        account_id = self.token.account
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+        group_id = self.get_argument("group_id")
+
+        try:
+            group_profile = json.loads(self.get_argument("group_profile"))
+        except:
+            raise HTTPError(400, "Not a valid 'group_profile'.")
+
+        try:
+            new_data = yield events.update_group_profile(
+                gamespace_id, event_id, group_id,
+                group_profile, merge)
+        except EventError as e:
+            raise HTTPError(e.code, str(e))
+        except EventNotFound:
+            raise HTTPError(404, "Event '%s' was not found." % event_id)
+        except Exception as e:
+            logging.error(traceback.format_exc())
+            raise HTTPError(
+                500, "Failed to update group profile for "
+                     "the user '{0}' in the event '{1}': {2}".format(account_id, event_id, e))
+
+        self.dumps(new_data)
+
+
+class EventGroupParticipantsHandler(AuthenticatedHandler):
+    @scoped(scopes=[])
+    @coroutine
+    def get(self, event_id):
+        events = self.application.events
+
+        account_id = self.token.account
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+        group_id = self.get_argument("group_id")
+
+        try:
+            participants = yield events.list_group_account_participants(
+                gamespace_id, event_id, group_id)
+        except EventError as e:
+            raise HTTPError(e.code, str(e))
+        except EventNotFound:
+            raise HTTPError(404, "Event '%s' was not found." % event_id)
+        except Exception as e:
+            logging.error(traceback.format_exc())
+            raise HTTPError(
+                500, "Failed to get group profile for "
+                     "the user '{0}' in the event '{1}': {2}".format(account_id, event_id, e))
+
+        self.dumps({
+            "participants": {
+                account_id: {
+                    "profile": participant.profile,
+                    "score": participant.score
+                }
+                for account_id, participant in participants.iteritems()
+            }
+        })
+
+    @scoped(scopes=["event_profile_write"])
+    @coroutine
+    def post(self, event_id):
+        events = self.application.events
+
+        merge = self.get_argument("merge", "true") == "true"
+        account_id = self.token.account
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+        group_id = self.get_argument("group_id")
+
+        try:
+            group_profile = json.loads(self.get_argument("group_profile"))
+        except:
+            raise HTTPError(400, "Not a valid 'group_profile'.")
+
+        try:
+            new_data = yield events.update_group_profile(
+                gamespace_id, event_id, group_id,
+                group_profile, merge)
+        except EventError as e:
+            raise HTTPError(e.code, str(e))
+        except EventNotFound:
+            raise HTTPError(404, "Event '%s' was not found." % event_id)
+        except Exception as e:
+            logging.error(traceback.format_exc())
+            raise HTTPError(
+                500, "Failed to update group profile for "
+                     "the user '{0}' in the event '{1}': {2}".format(account_id, event_id, e))
+
+        self.dumps(new_data)
 
 
 class EventAddScoreHandler(AuthenticatedHandler):
-    @scoped()
+    @scoped(scopes=["event_write"])
     @coroutine
     def post(self, event_id):
 
-        token = self.token
+        account_id = self.token.account
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
 
-        try:
-            score = float(self.get_argument("score"))
-        except:
-            raise HTTPError(400, "Not a valid score.")
+        auto_join = self.get_argument("auto_join", "true") == "true"
+        score = self.get_argument("score")
 
-        account_id = token.account
-        gamespace_id = token.get(AccessToken.GAMESPACE)
+        if auto_join and not self.has_scopes(["event_join"]):
+            raise HTTPError(403, "Scope 'event_join' is required for auto_join")
 
-        leaderboard_info = self.get_argument("leaderboard_info")
+        leaderboard_info = self.get_argument("leaderboard_info", None)
         if leaderboard_info:
             try:
                 leaderboard_info = json.loads(leaderboard_info)
@@ -153,48 +323,75 @@ class EventAddScoreHandler(AuthenticatedHandler):
 
         try:
             new_score = yield self.application.events.add_score(
-                gamespace_id,
-                event_id,
-                account_id,
-                score,
-                leaderboard_info)
-
+                gamespace_id, event_id, account_id,
+                score, leaderboard_info, auto_join=auto_join)
         except EventError as e:
-            raise HTTPError(
-                e.code,
-                str(e))
-
+            raise HTTPError(e.code, str(e))
         except EventNotFound:
-            raise HTTPError(
-                404,
-                "Event '%s' was not found." % event_id)
-
+            raise HTTPError(404, "Event '%s' was not found." % event_id)
         except Exception as e:
-            logging.error(traceback.format_exc())
             raise HTTPError(
-                500,
-                "Failed to update score for the user '{0}' in the event '{1}': {2}".format(
+                500, "Failed to update score for the user '{0}' in the event '{1}': {2}".format(
                     account_id, event_id, e))
-        else:
-            self.dumps({
-                "score": new_score
-            })
+
+        self.dumps({
+            "score": new_score
+        })
 
 
-class EventUpdateScoreHandler(AuthenticatedHandler):
-    @scoped()
+class EventGroupAddScoreHandler(AuthenticatedHandler):
+    @scoped(scopes=["event_write"])
     @coroutine
     def post(self, event_id):
 
-        token = self.token
+        account_id = self.token.account
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+
+        group_id = self.get_argument("group_id")
+        auto_join = self.get_argument("auto_join", "true") == "true"
+        score = self.get_argument("score")
+
+        if auto_join and not self.has_scopes(["event_join"]):
+            raise HTTPError(403, "Scope 'event_join' is required for auto_join")
+
+        leaderboard_info = self.get_argument("leaderboard_info", None)
+        if leaderboard_info:
+            try:
+                leaderboard_info = json.loads(leaderboard_info)
+            except (KeyError, ValueError):
+                raise HTTPError(400, "JSON 'leaderboard_info' is corrupted")
 
         try:
-            score = float(self.get_argument("score"))
-        except:
-            raise HTTPError(400, "Not a valid score.")
+            new_score = yield self.application.events.add_group_score(
+                gamespace_id, event_id, group_id, account_id,
+                score, leaderboard_info=leaderboard_info, auto_join=auto_join)
+        except EventError as e:
+            raise HTTPError(e.code, str(e))
+        except EventNotFound:
+            raise HTTPError(404, "Event '%s' was not found." % event_id)
+        except Exception as e:
+            raise HTTPError(
+                500, "Failed to update score for the user '{0}' in the event '{1}': {2}".format(
+                    account_id, event_id, e))
 
-        account_id = token.account
-        gamespace_id = token.get(AccessToken.GAMESPACE)
+        self.dumps({
+            "score": new_score
+        })
+
+
+class EventUpdateScoreHandler(AuthenticatedHandler):
+    @scoped(scopes=["event_write"])
+    @coroutine
+    def post(self, event_id):
+        score = self.get_argument("score")
+
+        account_id = self.token.account
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+
+        auto_join = self.get_argument("auto_join", "true") == "true"
+
+        if auto_join and not self.has_scopes(["event_join"]):
+            raise HTTPError(403, "Scope 'event_join' is required for auto_join")
 
         leaderboard_info = self.get_argument("leaderboard_info")
         if leaderboard_info:
@@ -205,28 +402,58 @@ class EventUpdateScoreHandler(AuthenticatedHandler):
 
         try:
             new_score = yield self.application.events.update_score(
-                gamespace_id,
-                event_id,
-                account_id,
-                score,
-                leaderboard_info)
-
+                gamespace_id, event_id, account_id,
+                score, leaderboard_info)
         except EventError as e:
-            raise HTTPError(
-                e.code,
-                str(e))
-
+            raise HTTPError(e.code, str(e))
         except EventNotFound:
-            raise HTTPError(
-                404,
-                "Event '%s' was not found." % event_id)
-
+            raise HTTPError(404,  "Event '%s' was not found." % event_id)
         except Exception as e:
             logging.error(traceback.format_exc())
             raise HTTPError(
-                500,
-                "Failed to update score for the user '{0}' in the event '{1}': {2}".format(
-                    account_id, event_id, e))
+                500, "Failed to update score for "
+                     "the user '{0}' in the event '{1}': {2}".format(account_id, event_id, e))
+        else:
+            self.dumps({
+                "score": new_score
+            })
+
+
+class EventGroupUpdateScoreHandler(AuthenticatedHandler):
+    @scoped(scopes=["event_write"])
+    @coroutine
+    def post(self, event_id):
+        score = self.get_argument("score")
+
+        account_id = self.token.account
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+
+        group_id = self.get_argument("group_id")
+        auto_join = self.get_argument("auto_join", "true") == "true"
+
+        if auto_join and not self.has_scopes(["event_join"]):
+            raise HTTPError(403, "Scope 'event_join' is required for auto_join")
+
+        leaderboard_info = self.get_argument("leaderboard_info")
+        if leaderboard_info:
+            try:
+                leaderboard_info = json.loads(leaderboard_info)
+            except (KeyError, ValueError):
+                raise HTTPError(400, "JSON 'leaderboard_info' is corrupted")
+
+        try:
+            new_score = yield self.application.events.update_group_score(
+                gamespace_id, event_id, group_id, account_id,
+                score, leaderboard_info, auto_join=auto_join)
+        except EventError as e:
+            raise HTTPError(e.code, str(e))
+        except EventNotFound:
+            raise HTTPError(404,  "Event '%s' was not found." % event_id)
+        except Exception as e:
+            logging.error(traceback.format_exc())
+            raise HTTPError(
+                500, "Failed to update score for "
+                     "the group '{0}' in the event '{1}': {2}".format(group_id, event_id, e))
         else:
             self.dumps({
                 "score": new_score
@@ -234,24 +461,28 @@ class EventUpdateScoreHandler(AuthenticatedHandler):
 
 
 class EventsHandler(AuthenticatedHandler):
-    @scoped()
+    @scoped(scopes=["event"])
     @coroutine
     def get(self):
 
-        account_id = self.current_user.token.account
-        gamespace_id = self.current_user.token.get(AccessToken.GAMESPACE)
+        events = self.application.events
+        account_id = self.token.account
+        gamespace_id = self.token.get(AccessToken.GAMESPACE)
+
+        group_id = self.get_argument("group_id", 0)
 
         try:
-            events = yield self.application.events.get_events(
-                gamespace_id,
-                account_id)
+            events_list = yield events.list_events(
+                gamespace_id, account_id, group_id=group_id)
 
         except Exception as e:
             raise HTTPError(
                 500, "Failed to fetch a list of "
-                "current events available for user '{0}': {1}".format(account_id, e)
-            )
+                "current events available for user '{0}': {1}".format(account_id, e))
         else:
             self.dumps({
-                "events": [event.dump() for event in events]
+                "events": [
+                    event.dump()
+                    for event in events_list
+                ]
             })

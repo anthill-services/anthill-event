@@ -25,7 +25,13 @@ class EventsServer(common.server.Server):
             user=options.db_username,
             password=options.db_password)
 
-        self.events = EventsModel(self.db)
+        self.events = EventsModel(self.db, self)
+
+        self.cache = common.keyvalue.KeyValueStorage(
+            host=options.cache_host,
+            port=options.cache_port,
+            db=options.cache_db,
+            max_connections=options.cache_max_connections)
 
     def get_admin(self):
         return {
@@ -53,6 +59,13 @@ class EventsServer(common.server.Server):
     def get_handlers(self):
         return [
             (r"/events", handler.EventsHandler),
+            (r"/event/(.*)/group/leave", handler.EventGroupLeaveHandler),
+            (r"/event/(.*)/group/join", handler.EventGroupJoinHandler),
+            (r"/event/(.*)/group/score/add", handler.EventGroupAddScoreHandler),
+            (r"/event/(.*)/group/score/update", handler.EventGroupUpdateScoreHandler),
+            (r"/event/(.*)/group/profile", handler.EventGroupProfileHandler),
+            (r"/event/(.*)/group/participants", handler.EventGroupParticipantsHandler),
+
             (r"/event/(.*)/leave", handler.EventLeaveHandler),
             (r"/event/(.*)/join", handler.EventJoinHandler),
             (r"/event/(.*)/score/add", handler.EventAddScoreHandler),

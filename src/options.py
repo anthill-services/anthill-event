@@ -40,6 +40,32 @@ define("db_name",
        type=str,
        help="MySQL database name")
 
+# Regular cache
+
+define("cache_host",
+       default="127.0.0.1",
+       help="Location of a regular cache (redis).",
+       group="cache",
+       type=str)
+
+define("cache_port",
+       default=6379,
+       help="Port of regular cache (redis).",
+       group="cache",
+       type=int)
+
+define("cache_db",
+       default=7,
+       help="Database of regular cache (redis).",
+       group="cache",
+       type=int)
+
+define("cache_max_connections",
+       default=500,
+       help="Maximum connections to the regular cache (connection pool).",
+       group="cache",
+       type=int)
+
 # Events
 
 define("schedule_update",

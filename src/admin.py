@@ -6,7 +6,33 @@ import ujson
 import collections
 import common
 
-from model.event import EventNotFound, CategoryNotFound
+from common.validate import validate
+
+from model.event import EventNotFound, CategoryNotFound, EventFlags, EventEndAction
+
+
+EVENT_END_ACTION_DESCRIPTION = """
+<b>Send Message</b><br>A message with detailed information about event (including score, rank, profile) 
+will be sent to the participating players<br><br>
+<b>Call Exec Function</b><br>A function on exec service will be called with detailed information about event (including 
+score, rank, profile). In that case the function with name <code>event</code> should be created with such body 
+(the actual method should be named <code>event_completed</code>):<br>
+<pre><code>
+function event_completed(args, api, res)<br>
+{
+&nbsp;&nbsp;&nbsp;&nbsp;// args[\"event\"] would contain event info
+&nbsp;&nbsp;&nbsp;&nbsp;// args[\"participants\"] would contain a list of participation objects to process 
+&nbsp;&nbsp;&nbsp;&nbsp;// (one object for each player/participant), like so:
+&nbsp;&nbsp;&nbsp;&nbsp;{
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;\"account\": &lt;account id&gt;, 
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;\"profile\": &lt;participation profile&gt;, 
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;\"score\": &lt;score&gt;, 
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;\"rank\": &lt;rank&gt;
+&nbsp;&nbsp;&nbsp;&nbsp;}
+}
+</code></pre><br>
+Please note that method <code>res</code> should be called once processing is done.
+"""
 
 
 class CategoriesController(a.AdminController):
@@ -229,8 +255,8 @@ class EventController(a.AdminController):
 
         try:
             event = yield events.get_event(self.gamespace, event_id)
-        except EventNotFound as e:
-            raise a.ActionError("Event '" + str(event_id) + "' was not found.")
+        except EventNotFound:
+            raise a.ActionError("Event was not found.")
 
         category_id = event.category_id
         category_name = event.category
@@ -238,8 +264,10 @@ class EventController(a.AdminController):
         enabled = "true" if event.enabled else "false"
         tournament = "true" if event.tournament else "false"
         clustered = "true" if event.clustered else "false"
+        group = "true" if event.group else "false"
         start_dt = str(event.time_start)
         end_dt = str(event.time_end)
+        end_action = str(event.end_action)
 
         common_scheme = yield events.get_common_scheme(self.gamespace)
         category = yield events.get_category(self.gamespace, category_id)
@@ -252,13 +280,15 @@ class EventController(a.AdminController):
             "enabled": enabled,
             "tournament": tournament,
             "clustered": clustered,
+            "group": group,
             "event": event,
             "start_dt": start_dt,
             "end_dt": end_dt,
             "event_data": event.data,
             "scheme": scheme,
             "category": category_id,
-            "category_name": category_name
+            "category_name": category_name,
+            "end_action": end_action
         })
 
     def render(self, data):
@@ -274,12 +304,22 @@ class EventController(a.AdminController):
                 fields={
                     "event_data": a.field(
                         "Event properties", "dorn", "primary",
-                        schema=data["scheme"], order=6
+                        schema=data["scheme"], order=8
                     ),
                     "enabled": a.field("Is event enabled", "switch", "primary", order=3),
-                    "tournament": a.field("Is tournament enabled", "switch", "primary", order=4),
+                    "tournament": a.field("Is tournament enabled (e.g. players will be ranked)",
+                                          "switch", "primary", order=4),
                     "clustered": a.field("Is tournament's leaderboard clustered", "switch", "primary",
                                          readonly=True, order=5),
+                    "group": a.field("Is event group-based", "switch", "primary",
+                                         readonly=True, order=6),
+
+                    "end_action": a.field("Action Once Event Is Complete", "select", "primary", order=7, values={
+                        EventEndAction.NONE: "Do nothing",
+                        EventEndAction.MESSAGE: "Send Message",
+                        EventEndAction.EXEC: "Call Exec Function"
+                    }, description=EVENT_END_ACTION_DESCRIPTION),
+
                     "category_name": a.field("Category", "readonly", "primary"),
                     "start_dt": a.field("Start date", "date", "primary", order=1),
                     "end_dt": a.field("End date", "date", "primary", order=2)
@@ -300,13 +340,28 @@ class EventController(a.AdminController):
         ]
 
     @coroutine
-    def save(self, event_data, start_dt, end_dt, enabled="false", tournament="false", **ignore):
+    @validate(event_data="load_json_dict", start_dt="datetime", end_dt="datetime",
+              enabled="bool", tournament="bool", end_action="str")
+    def save(self, event_data, start_dt, end_dt, enabled=False, tournament=False,
+             end_action=EventEndAction.NONE, **ignore):
         event_id = self.context.get("event_id")
 
-        logging.debug("Saving event '%s'", event_id)
-        yield self.application.events.update_event(
-            self.gamespace, event_id, enabled, tournament, ujson.loads(event_data), start_dt, end_dt
-        )
+        events = self.application.events
+
+        try:
+            event = yield events.get_event(self.gamespace, event_id)
+        except EventNotFound:
+            raise a.ActionError("Event was not found.")
+
+        flags = event.flags
+
+        flags.set(EventFlags.TOURNAMENT, tournament)
+
+        end_action = EventEndAction(end_action)
+
+        yield events.update_event(
+            self.gamespace, event_id, enabled, flags,
+            event_data, start_dt, end_dt, end_action)
 
         raise a.Redirect(
             "event",
@@ -335,8 +390,8 @@ class EventsController(a.AdminController):
 
         events, pages = yield self.application.events.list_paged_events(
             self.gamespace,
-            category,
-            EventsController.EVENTS_IN_PAGE, page)
+            EventsController.EVENTS_IN_PAGE, page,
+            category_id=category)
 
         cats = {
             cat.category_id: cat.name
@@ -475,13 +530,29 @@ class NewCategoryController(a.AdminController):
 
 class NewEventController(a.AdminController):
     @coroutine
-    def create(self, event_data, start_dt, end_dt, enabled="false", tournament="false", clustered="false", **ignore):
+    @validate(event_data="load_json_dict", start_dt="datetime", end_dt="datetime", enabled="bool",
+              tournament="bool", clustered="bool", group="bool", end_action="str_name")
+    def create(self, event_data, start_dt, end_dt, enabled=False, tournament=False, clustered=False, group=False,
+               end_action=EventEndAction.NONE, **ignore):
         category_id = self.context.get("category")
+
+        flags = EventFlags()
+
+        if tournament:
+            flags.set(EventFlags.TOURNAMENT)
+
+        if clustered:
+            flags.set(EventFlags.CLUSTERED)
+
+        if group:
+            flags.set(EventFlags.GROUP)
+
+        end_action = EventEndAction(end_action)
 
         try:
             event_id = yield self.application.events.create_event(
-                self.gamespace, category_id, enabled, tournament, clustered, ujson.loads(event_data), start_dt, end_dt
-            )
+                self.gamespace, category_id, enabled, flags,
+                event_data, start_dt, end_dt, end_action)
         except CategoryNotFound:
             raise a.ActionError("Category not found")
 
@@ -491,6 +562,7 @@ class NewEventController(a.AdminController):
             event_id=event_id)
 
     @coroutine
+    @validate(category="int", clone="int")
     def get(self, category, clone=None):
 
         events = self.application.events
@@ -519,17 +591,21 @@ class NewEventController(a.AdminController):
         end_dt = None
         enabled = "true"
         tournament = "false"
+        clustered = "false"
+        group = "false"
 
         if clone:
 
             try:
                 event = yield events.get_event(self.gamespace, clone)
-            except EventNotFound as e:
-                raise a.ActionError("Event '" + str(clone) + "' was not found.")
+            except EventNotFound:
+                raise a.ActionError("Event was not found.")
 
             event_data = event.data
             enabled = "true" if event.enabled else "false"
             tournament = "true" if event.tournament else "false"
+            clustered = "true" if event.clustered else "false"
+            group = "true" if event.group else "false"
             start_dt = str(event.time_start)
             end_dt = str(event.time_end)
 
@@ -537,10 +613,13 @@ class NewEventController(a.AdminController):
             "scheme": scheme,
             "enabled": enabled,
             "tournament": tournament,
+            "clustered": clustered,
+            "group": group,
             "category_name": category_name,
             "event_data": event_data,
             "start_dt": start_dt,
-            "end_dt": end_dt
+            "end_dt": end_dt,
+            "end_action": EventEndAction.NONE
         })
 
     def render(self, data):
@@ -556,12 +635,23 @@ class NewEventController(a.AdminController):
                 fields={
                     "event_data": a.field(
                         "Event properties", "dorn", "primary",
-                        schema=data["scheme"], order=5
+                        schema=data["scheme"], order=8
                     ),
                     "enabled": a.field("Is event enabled", "switch", "primary", order=3),
-                    "tournament": a.field("Is tournament enabled", "switch", "primary", order=4),
-                    "clustered": a.field("Is tournament's leaderboard clustered (cannot be changed later)",
-                                         "switch", "primary", order=4),
+                    "tournament": a.field("Is tournament enabled (e.g. players will be ranked)",
+                                          "switch", "primary", order=4),
+                    "clustered": a.field("Is tournament's leaderboard clustered",
+                                         "switch", "primary", order=5,
+                                         description="Cannot be changed later"),
+                    "group": a.field("In even group-based",
+                                     "switch", "primary", order=6,
+                                     description="Cannot be changed later"),
+
+                    "end_action": a.field("Action Once Event Is Complete", "select", "primary", order=7, values={
+                        EventEndAction.NONE: "Do nothing",
+                        EventEndAction.MESSAGE: "Send Message",
+                        EventEndAction.EXEC: "Call Exec Function"
+                    }, description=EVENT_END_ACTION_DESCRIPTION),
 
                     "start_dt": a.field("Start date", "date", "primary", "non-empty", order=1),
                     "end_dt": a.field("End date", "date", "primary", "non-empty", order=2)

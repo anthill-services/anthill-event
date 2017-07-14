@@ -651,6 +651,9 @@ class EventsModel(Model):
                     old_score = res["participation_score"]
                 else:
                     if auto_join:
+
+                        yield db.commit()
+                        
                         # if user has not been participated in this event, join him
                         yield self.join_event(
                             gamespace_id, event_id, account_id, score=score,

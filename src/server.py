@@ -59,6 +59,7 @@ class EventsServer(common.server.Server):
     def get_handlers(self):
         return [
             (r"/events", handler.EventsHandler),
+
             (r"/event/(.*)/group/leave", handler.EventGroupLeaveHandler),
             (r"/event/(.*)/group/join", handler.EventGroupJoinHandler),
             (r"/event/(.*)/group/score/add", handler.EventGroupAddScoreHandler),

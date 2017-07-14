@@ -132,9 +132,13 @@ class EventProfileHandler(AuthenticatedHandler):
         account_id = self.token.account
         gamespace_id = self.token.get(AccessToken.GAMESPACE)
 
+        path = self.get_argument("path", None)
+        if path:
+            path = filter(bool, path.split("/"))
+
         try:
             data = yield events.get_profile(
-                gamespace_id, event_id, account_id)
+                gamespace_id, event_id, account_id, path=path)
         except EventError as e:
             raise HTTPError(e.code, str(e))
         except EventNotFound:
@@ -156,6 +160,10 @@ class EventProfileHandler(AuthenticatedHandler):
         account_id = self.token.account
         gamespace_id = self.token.get(AccessToken.GAMESPACE)
 
+        path = self.get_argument("path", None)
+        if path:
+            path = filter(bool, path.split("/"))
+
         try:
             profile = json.loads(self.get_argument("profile"))
         except:
@@ -164,7 +172,7 @@ class EventProfileHandler(AuthenticatedHandler):
         try:
             new_data = yield events.update_profile(
                 gamespace_id, event_id, account_id,
-                profile, merge)
+                profile, path=path, merge=merge)
         except EventError as e:
             raise HTTPError(e.code, str(e))
         except EventNotFound:
@@ -188,9 +196,13 @@ class EventGroupProfileHandler(AuthenticatedHandler):
         gamespace_id = self.token.get(AccessToken.GAMESPACE)
         group_id = self.get_argument("group_id")
 
+        path = self.get_argument("path", None)
+        if path:
+            path = filter(bool, path.split("/"))
+
         try:
             data = yield events.get_group_profile(
-                gamespace_id, event_id, group_id)
+                gamespace_id, event_id, group_id, path=path)
         except EventError as e:
             raise HTTPError(e.code, str(e))
         except EventNotFound:
@@ -213,6 +225,10 @@ class EventGroupProfileHandler(AuthenticatedHandler):
         gamespace_id = self.token.get(AccessToken.GAMESPACE)
         group_id = self.get_argument("group_id")
 
+        path = self.get_argument("path", None)
+        if path:
+            path = filter(bool, path.split("/"))
+
         try:
             group_profile = json.loads(self.get_argument("group_profile"))
         except:
@@ -221,7 +237,7 @@ class EventGroupProfileHandler(AuthenticatedHandler):
         try:
             new_data = yield events.update_group_profile(
                 gamespace_id, event_id, group_id,
-                group_profile, merge)
+                group_profile, path=path, merge=merge)
         except EventError as e:
             raise HTTPError(e.code, str(e))
         except EventNotFound:
@@ -461,7 +477,7 @@ class EventGroupUpdateScoreHandler(AuthenticatedHandler):
 
 
 class EventsHandler(AuthenticatedHandler):
-    @scoped(scopes=["event"])
+    @scoped()
     @coroutine
     def get(self):
 
@@ -470,10 +486,12 @@ class EventsHandler(AuthenticatedHandler):
         gamespace_id = self.token.get(AccessToken.GAMESPACE)
 
         group_id = self.get_argument("group_id", 0)
+        extra_time = self.get_argument("extra_time", 0)
 
         try:
             events_list = yield events.list_events(
-                gamespace_id, account_id, group_id=group_id)
+                gamespace_id, account_id,
+                group_id=group_id, extra_time=extra_time)
 
         except Exception as e:
             raise HTTPError(

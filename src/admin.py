@@ -332,7 +332,7 @@ class EventController(a.AdminController):
             ),
             a.links("Navigate", [
                 a.link("events", "Go back", icon="chevron-left", category=category),
-                a.link("category", "Edit category", category_id=category),
+                a.link("category", "Edit category", icon="list-alt", category_id=category),
                 a.link("new_event", "Clone event", icon="clone",
                        clone=self.context.get("event_id"),
                        category=data.get("category"))
@@ -593,6 +593,7 @@ class NewEventController(a.AdminController):
         tournament = "false"
         clustered = "false"
         group = "false"
+        end_action = EventEndAction.NONE
 
         if clone:
 
@@ -608,6 +609,7 @@ class NewEventController(a.AdminController):
             group = "true" if event.group else "false"
             start_dt = str(event.time_start)
             end_dt = str(event.time_end)
+            end_action = str(event.end_action)
 
         raise Return({
             "scheme": scheme,
@@ -619,7 +621,7 @@ class NewEventController(a.AdminController):
             "event_data": event_data,
             "start_dt": start_dt,
             "end_dt": end_dt,
-            "end_action": EventEndAction.NONE
+            "end_action": end_action
         })
 
     def render(self, data):
@@ -663,7 +665,7 @@ class NewEventController(a.AdminController):
             ),
             a.links("Navigate", [
                 a.link("events", "Go back", icon="chevron-left", category=category),
-                a.link("category", "Edit category", category_id=category)
+                a.link("category", "Edit category", icon="list-alt", category_id=category)
             ])
         ]
 

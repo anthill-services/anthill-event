@@ -85,7 +85,7 @@ class EventAdapter(object):
     def kind(self):
         if EventFlags.GROUP in self.flags:
             return "group"
-        return "default"
+        return "account"
 
     def dump(self):
         e = {
@@ -140,15 +140,19 @@ class EventWithParticipationAdapter(EventAdapter, EventParticipationAdapter, Gro
         if self.group:
             data.update({
                 "score": self.group_score,
-                "profile": self.group_profile,
                 "joined": self.group_joined
             })
+
+            if self.group_profile:
+                data["profile"] = self.group_profile
         else:
             data.update({
                 "score": self.score,
-                "profile": self.profile,
                 "joined": self.joined
             })
+
+            if self.group_profile:
+                data["profile"] = self.profile
 
         return data
 
@@ -898,9 +902,7 @@ class EventsModel(Model):
                     gamespace_id, event_id, account_id, score=score,
                     leaderboard_info=leaderboard_info)
 
-            if event.tournament:
-                if leaderboard_info is None:
-                    raise EventError("leaderboard_info is required")
+            if event.tournament and leaderboard_info:
 
                 display_name = leaderboard_info.get("display_name")
                 expire_in = leaderboard_info.get("expire_in")
@@ -977,9 +979,7 @@ class EventsModel(Model):
                     gamespace_id, event_id, account_id, score=score,
                     leaderboard_info=leaderboard_info)
 
-            if event.tournament:
-                if leaderboard_info is None:
-                    raise EventError("leaderboard_info is required")
+            if event.tournament and leaderboard_info:
 
                 display_name = leaderboard_info.get("display_name")
                 expire_in = leaderboard_info.get("expire_in")
@@ -1215,8 +1215,8 @@ class EventsModel(Model):
         raise Return(map(CategoryAdapter, categories))
 
     @coroutine
-    @validate(gamespace_id="int", account_id="int", group_id="int")
-    def list_events(self, gamespace_id, account_id, group_id=0):
+    @validate(gamespace_id="int", account_id="int", group_id="int", extra_time="int")
+    def list_events(self, gamespace_id, account_id, group_id=0, extra_time=0):
 
         dt = datetime.datetime.fromtimestamp(utc_time(), tz=pytz.utc).strftime('%Y-%m-%d %H:%M:%S')
 
@@ -1251,9 +1251,9 @@ class EventsModel(Model):
                     )
                 WHERE
                     `category_scheme`.`gamespace_id` = %s AND
-                    %s BETWEEN `events`.`event_start_dt` AND `events`.`event_end_dt`;
+                    %s BETWEEN `events`.`event_start_dt` AND DATE_ADD(`events`.`event_end_dt`, INTERVAL %s second);
             """,
-            account_id, group_id, gamespace_id, dt)
+            account_id, group_id, gamespace_id, dt, extra_time)
 
         raise Return([EventWithParticipationAdapter(event) for event in events])
 
@@ -1404,9 +1404,7 @@ class EventsModel(Model):
                     """,
                     group_id, gamespace_id, event_id, "JOINED", score, "{}")
 
-                if event.tournament and score:
-                    if leaderboard_info is None:
-                        raise EventError("leaderboard_info is required")
+                if event.tournament and leaderboard_info:
 
                     display_name = leaderboard_info.get("display_name")
                     expire_in = leaderboard_info.get("expire_in")
@@ -1557,13 +1555,14 @@ class EventsModel(Model):
         raise Return(result)
 
     @coroutine
-    @validate(gamespace_id="int", event_id="int", account_id="int", profile="json_dict", merge="bool")
-    def update_profile(self, gamespace_id, event_id, account_id, profile, merge=True):
+    @validate(gamespace_id="int", event_id="int", account_id="int", profile="json_dict",
+              path="json_list_of_strings", merge="bool")
+    def update_profile(self, gamespace_id, event_id, account_id, profile, path=None, merge=True):
 
         profile_obj = ParticipationProfile(self.db, gamespace_id, event_id, account_id)
 
         try:
-            result = yield profile_obj.set_data(profile, None, merge=merge)
+            result = yield profile_obj.set_data(profile, path, merge=merge)
         except common.profile.NoDataError:
             raise EventError("User is not participating in the event")
         except common.profile.ProfileError as e:
@@ -1572,13 +1571,14 @@ class EventsModel(Model):
         raise Return(result)
 
     @coroutine
-    @validate(gamespace_id="int", event_id="int", group_id="int", profile="json_dict", merge="bool")
-    def update_group_profile(self, gamespace_id, event_id, group_id, profile, merge=True):
+    @validate(gamespace_id="int", event_id="int", group_id="int", profile="json_dict",
+              path="json_list_of_strings", merge="bool")
+    def update_group_profile(self, gamespace_id, event_id, group_id, profile, path=None, merge=True):
 
         profile_obj = GroupParticipationProfile(self.db, gamespace_id, event_id, group_id)
 
         try:
-            result = yield profile_obj.set_data(profile, None, merge=merge)
+            result = yield profile_obj.set_data(profile, path, merge=merge)
         except common.profile.NoDataError:
             raise EventError("Group is not participating in the event")
         except common.profile.ProfileError as e:
@@ -1587,13 +1587,13 @@ class EventsModel(Model):
         raise Return(result)
 
     @coroutine
-    @validate(gamespace_id="int", event_id="int", account_id="int")
-    def get_profile(self, gamespace_id, event_id, account_id):
+    @validate(gamespace_id="int", event_id="int", account_id="int", path="json_list_of_strings")
+    def get_profile(self, gamespace_id, event_id, account_id, path=None):
 
         profile_obj = ParticipationProfile(self.db, gamespace_id, event_id, account_id)
 
         try:
-            result = yield profile_obj.get()
+            result = yield profile_obj.get_data(path)
         except common.profile.NoDataError:
             raise EventError("Player is not participating in the event")
         except common.profile.ProfileError as e:
@@ -1602,13 +1602,13 @@ class EventsModel(Model):
         raise Return(result)
 
     @coroutine
-    @validate(gamespace_id="int", event_id="int", group_id="int")
-    def get_group_profile(self, gamespace_id, event_id, group_id):
+    @validate(gamespace_id="int", event_id="int", group_id="int", path="json_list_of_strings")
+    def get_group_profile(self, gamespace_id, event_id, group_id, path=None):
 
         profile_obj = GroupParticipationProfile(self.db, gamespace_id, event_id, group_id)
 
         try:
-            result = yield profile_obj.get()
+            result = yield profile_obj.get_data(path)
         except common.profile.NoDataError:
             raise EventError("Group is not participating in the event")
         except common.profile.ProfileError as e:

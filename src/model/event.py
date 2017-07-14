@@ -144,15 +144,15 @@ class EventWithParticipationAdapter(EventAdapter, EventParticipationAdapter, Gro
             })
 
             if self.group_profile:
-                data["profile"] = self.group_profile
+                data["group_profile"] = self.group_profile
         else:
             data.update({
                 "score": self.score,
                 "joined": self.joined
             })
 
-            if self.group_profile:
-                data["profile"] = self.profile
+        if self.profile:
+            data["profile"] = self.profile
 
         return data
 

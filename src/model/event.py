@@ -575,7 +575,7 @@ class EventsModel(Model):
 
         try:
             top_entries = yield self.internal.request(
-                "leaderboard", "get_top",
+                "leaderboard", "get_top_all_clusters",
                 gamespace=gamespace, sort_order=leaderboard_order,
                 leaderboard_name=leaderboard_name)
         except InternalError as e:

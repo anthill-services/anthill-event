@@ -645,7 +645,7 @@ class EventsModel(Model):
                         raise EventError("Bad event (not event_status)", code=500)
 
                     active, flags = event_status.split("|")
-                    flags = EventFlags(flags.split(","))
+                    flags = EventFlags(flags.lower().split(","))
 
                     if EventFlags.GROUP in flags:
                         raise EventError("Event is group kind, and 'group_id' is not passed", code=409)

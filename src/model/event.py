@@ -379,17 +379,23 @@ class EventSchedule(Schedule):
         if not messages:
             return
 
-        try:
-            yield self.events.internal.request(
-                "message", "send_batch",
-                gamespace=gamespace, sender=0, messages=messages,
-                authoritative=True)
-        except InternalError as e:
-            logging.error("Failed to deliver reward messages about completed event "
-                          "(" + str(event_id) + "): " + str(e))
-        else:
-            logging.info("Successfully sent reward messages about completed event "
-                         "(" + str(event_id) + ") to one cluster")
+        def chunks(l, n):
+            for i in xrange(0, len(l), n):
+                yield l[i:i + n]
+
+        for chunk in chunks(messages, 1000):
+
+            try:
+                yield self.events.internal.request(
+                    "message", "send_batch",
+                    gamespace=gamespace, sender=0, messages=chunk,
+                    authoritative=True)
+            except InternalError as e:
+                logging.error("Failed to deliver reward messages about completed event "
+                              "(" + str(event_id) + "): " + str(e))
+            else:
+                logging.info("Successfully sent reward messages about completed event "
+                             "(" + str(event_id) + ") to one chunk of data (" + str(len(chunk)) + ")")
 
     @coroutine
     def __end_event__(self, gamespace, event):

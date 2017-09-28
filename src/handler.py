@@ -486,12 +486,17 @@ class EventsHandler(AuthenticatedHandler):
         gamespace_id = self.token.get(AccessToken.GAMESPACE)
 
         group_id = self.get_argument("group_id", 0)
-        extra_time = self.get_argument("extra_time", 0)
+
+        extra_start_time = self.get_argument("extra_start_time", 0)
+        extra_end_time = self.get_argument("extra_end_time", self.get_argument("extra_time", 0))
 
         try:
             events_list = yield events.list_events(
                 gamespace_id, account_id,
-                group_id=group_id, extra_time=extra_time)
+                group_id=group_id,
+
+                extra_start_time=extra_start_time,
+                extra_end_time=extra_end_time)
 
         except Exception as e:
             raise HTTPError(

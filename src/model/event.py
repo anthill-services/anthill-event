@@ -1224,8 +1224,8 @@ class EventsModel(Model):
         raise Return(map(CategoryAdapter, categories))
 
     @coroutine
-    @validate(gamespace_id="int", account_id="int", group_id="int", extra_time="int")
-    def list_events(self, gamespace_id, account_id, group_id=0, extra_time=0):
+    @validate(gamespace_id="int", account_id="int", group_id="int", extra_start_time="int", extra_end_time="int")
+    def list_events(self, gamespace_id, account_id, group_id=0, extra_start_time=0, extra_end_time=0):
 
         dt = datetime.datetime.fromtimestamp(utc_time(), tz=pytz.utc).strftime('%Y-%m-%d %H:%M:%S')
 
@@ -1260,9 +1260,11 @@ class EventsModel(Model):
                     )
                 WHERE
                     `category_scheme`.`gamespace_id` = %s AND
-                    %s BETWEEN `events`.`event_start_dt` AND DATE_ADD(`events`.`event_end_dt`, INTERVAL %s second);
+                    %s BETWEEN 
+                        DATE_SUB(`events`.`event_start_dt`, INTERVAL %s second) AND 
+                        DATE_ADD(`events`.`event_end_dt`, INTERVAL %s second);
             """,
-            account_id, group_id, gamespace_id, dt, extra_time)
+            account_id, group_id, gamespace_id, dt, extra_start_time, extra_end_time)
 
         raise Return([EventWithParticipationAdapter(event) for event in events])
 

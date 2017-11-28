@@ -416,17 +416,22 @@ class EventsController(a.AdminController):
             description = "unknown"
 
             if "title" in event.data:
-                title = event.data["title"].get("EN", "unknown")
+                title_object = event.data["title"]
+                title = title_object.get("EN", title_object.get("en", "unknown"))
+            elif "name" in event.data:
+                title_object = event.data["name"]
+                title = title_object.get("EN", title_object.get("en", "unknown"))
 
             if "description" in event.data:
-                description = event.data["description"].get("EN", "unknown")
+                description_object = event.data["description"]
+                description = description_object.get("EN", description_object.get("en", "unknown"))
 
             tbl_tr = {
                 "edit": [a.link("event", event.item_id, icon="calendar", event_id=event.item_id)],
                 "enabled": "yes" if event.enabled else "no",
                 "tournament": "yes" + (" (clustered)" if event.clustered else "") if event.tournament else "no",
-                "name": title,
-                "description": description,
+                "name": title[:32],
+                "description": description[:32],
                 "category": event.category,
                 "dates": str(event.time_start) + " -<br> " + str(event.time_end),
                 "controls": [a.button("event", "Delete", "danger", _method="delete", event_id=event.item_id)]

@@ -11,6 +11,7 @@ from tornado.web import HTTPError
 
 
 from model.event import EventNotFound, EventError
+from common.validate import ValidationError, validate
 
 
 class EventJoinHandler(AuthenticatedHandler):
@@ -509,3 +510,55 @@ class EventsHandler(AuthenticatedHandler):
                     for event in events_list
                 ]
             })
+
+
+class InternalHandler(object):
+    def __init__(self, application):
+        self.application = application
+
+    @coroutine
+    @validate(gamespace="int", event_id="int", account="int", path="str", profile="json", merge="bool")
+    def update_event_profile(self, gamespace, event_id, account, profile, path=None, merge=True):
+        events = self.application.events
+
+        if path:
+            path = filter(bool, path.split("/"))
+
+        try:
+            new_data = yield events.update_profile(
+                gamespace, event_id, account,
+                profile, path=path, merge=merge)
+        except EventError as e:
+            raise HTTPError(e.code, str(e))
+        except EventNotFound:
+            raise HTTPError(404, "Event '%s' was not found." % event_id)
+        except Exception as e:
+            logging.error(traceback.format_exc())
+            raise HTTPError(
+                500, "Failed to update profile for "
+                     "the user '{0}' in the event '{1}': {2}".format(account, event_id, e))
+
+        raise Return(new_data)
+
+    @coroutine
+    @validate(gamespace="int", account="int")
+    def get_list(self, gamespace, account, group=0, extra_start_time=0, extra_end_time=0, extra_time=0):
+        events = self.application.events
+
+        try:
+            events_list = yield events.list_events(
+                gamespace, account,
+                group_id=group,
+                extra_start_time=extra_start_time,
+                extra_end_time=extra_end_time or extra_time
+            )
+
+        except Exception as e:
+            raise HTTPError(
+                500, "Failed to fetch a list of "
+                "current events available for user '{0}': {1}".format(account, e))
+        else:
+            raise Return([
+                event.dump()
+                for event in events_list
+            ])

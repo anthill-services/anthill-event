@@ -49,6 +49,9 @@ class EventsServer(common.server.Server):
     def get_models(self):
         return [self.events]
 
+    def get_internal_handler(self):
+        return handler.InternalHandler(self)
+
     def get_metadata(self):
         return {
             "title": "Events",

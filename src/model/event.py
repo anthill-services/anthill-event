@@ -51,6 +51,7 @@ class EventParticipationAdapter(object):
         self.status = data.get("participation_status", "NONE")
         self.profile = data.get("participation_profile")
         self.score = data.get("participation_score") or 0
+        self.tournament_result = data.get("participation_tournament_result", None)
 
     joined = property(lambda self: self.status == "JOINED")
 
@@ -137,6 +138,11 @@ class EventWithParticipationAdapter(EventAdapter, EventParticipationAdapter, Gro
     def dump(self):
         data = EventAdapter.dump(self)
 
+        if self.tournament and (self.tournament_result is not None):
+            tournament = data.get("tournament", None)
+            if tournament:
+                tournament["result"] = self.tournament_result
+
         if self.group:
             data.update({
                 "score": self.group_score,
@@ -187,7 +193,7 @@ class EventSchedule(Schedule):
         }
 
     @coroutine
-    def __end_action_exec__(self, gamespace, event):
+    def __end_action_exec__(self, gamespace, event, participants, leaderboard_top_entries=None):
         """
         Once event is finished, calls exec function over batch of participants
         If the event is tournament-like (with leaderboards), each participant rank is also calculated.
@@ -200,17 +206,11 @@ class EventSchedule(Schedule):
         event_data = event.dump()
         group = event.group
 
-        if group:
-            participants = yield self.events.list_event_group_participants(gamespace, event_id)
-        else:
-            participants = yield self.events.list_event_participants(gamespace, event_id)
         participants_out = []
 
         if event.tournament:
-            top_entries = yield self.events.__get_leaderboard_top__(gamespace, event_id, event.clustered)
-
-            if top_entries:
-                for cluster_id, cluster in top_entries.iteritems():
+            if leaderboard_top_entries:
+                for cluster_id, cluster in leaderboard_top_entries.iteritems():
 
                     if not cluster:
                         continue
@@ -285,7 +285,7 @@ class EventSchedule(Schedule):
                              "(" + str(event_id) + ") to a chunk of participants (" + str(len(chunk)) + ")")
 
     @coroutine
-    def __end_action_message__(self, gamespace, event):
+    def __end_action_message__(self, gamespace, event, participants, leaderboard_top_entries=None):
         """
         Once event is finished, sends a message to every participant.
         If the event is tournament-like (with leaderboards), each participant rank is also calculated.
@@ -296,17 +296,11 @@ class EventSchedule(Schedule):
         event_data = event.dump()
         group = event.group
 
-        if group:
-            participants = yield self.events.list_event_group_participants(gamespace, event_id)
-        else:
-            participants = yield self.events.list_event_participants(gamespace, event_id)
         messages = []
 
         if event.tournament:
-            top_entries = yield self.events.__get_leaderboard_top__(gamespace, event_id, event.clustered)
-
-            if top_entries:
-                for cluster_id, cluster in top_entries.iteritems():
+            if leaderboard_top_entries:
+                for cluster_id, cluster in leaderboard_top_entries.iteritems():
 
                     if not cluster:
                         continue
@@ -405,8 +399,36 @@ class EventSchedule(Schedule):
 
         end_action = self.end_event_actions.get(str(event.end_action), None)
 
+        if event.group:
+            participants = yield self.events.list_event_group_participants(gamespace, event_id)
+        else:
+            participants = yield self.events.list_event_participants(gamespace, event_id)
+
+        if event.tournament:
+            leaderboard_top_entries = yield self.events.__get_leaderboard_top__(gamespace, event_id, event.clustered)
+
+            if leaderboard_top_entries:
+                ranks = {}
+
+                for cluster_id, cluster in leaderboard_top_entries.iteritems():
+
+                    if not cluster:
+                        continue
+
+                    entries = cluster["data"]
+
+                    for entry in entries:
+                        account = str(entry["account"])
+                        rank = entry["rank"]
+
+                        ranks[account] = rank
+
+                yield self.events.update_event_participants_tournament_result(gamespace, event_id, participants, ranks)
+        else:
+            leaderboard_top_entries = None
+
         if end_action:
-            yield end_action(gamespace, event)
+            yield end_action(gamespace, event, participants, leaderboard_top_entries)
 
         yield self.db.execute(
             """
@@ -1141,6 +1163,33 @@ class EventsModel(Model):
 
     @coroutine
     @validate(gamespace_id="int", event_id="int")
+    def update_event_participants_tournament_result(self, gamespace_id, event_id, participants, ranks):
+
+        data = []
+        values = []
+
+        for account_id, participant in participants.iteritems():
+            rank = ranks.get(str(account_id), None)
+
+            if rank is None:
+                continue
+
+            values.append("(%s, %s, %s, %s, %s)")
+            data.extend([
+                event_id, gamespace_id, participant.account_id, "{}", rank
+            ])
+
+        yield self.db.execute(
+            """
+                INSERT INTO `event_participants`
+                (`event_id`, `gamespace_id`, `account_id`, `participation_profile`, `participation_tournament_result`) 
+                VALUES {0}
+                ON DUPLICATE KEY UPDATE 
+                `participation_tournament_result`=VALUES(`participation_tournament_result`);
+            """.format(",".join(values)), *data)
+
+    @coroutine
+    @validate(gamespace_id="int", event_id="int")
     def list_event_group_participants(self, gamespace_id, event_id):
         participants = yield self.db.query(
             """
@@ -1234,10 +1283,12 @@ class EventsModel(Model):
                 SELECT `events`.*,
                     `participant`.`account_id`, `participant`.`participation_status`, 
                     `participant`.`participation_score`, `participant`.`participation_profile`,
+                    `participant`.`participation_tournament_result`,
                     
                     `group_participant`.`group_id`, `group_participant`.`group_participation_status`, 
                     `group_participant`.`group_participation_score`, 
-                    `group_participant`.`group_participation_profile`
+                    `group_participant`.`group_participation_profile`,
+                    `group_participant`.`group_participation_tournament_result`
                 FROM `category_scheme`
                 JOIN `events` ON `category_scheme`.id = `events`.category_id
                 LEFT JOIN (

@@ -77,6 +77,7 @@ class EventsServer(common.server.Server):
             (r"/event/(.*)/profile", handler.EventProfileHandler),
         ]
 
+
 if __name__ == "__main__":
     stt = common.server.init()
     common.access.AccessToken.init([common.access.public()])

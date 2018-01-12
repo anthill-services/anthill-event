@@ -274,9 +274,8 @@ class EventSchedule(Schedule):
 
             try:
                 yield self.events.internal.request(
-                    "exec", "call_function",
-                    application_name="events", application_version="default", method_name="event_completed",
-                    gamespace=gamespace, args=args, env={})
+                    "exec", "call_function_default_code",
+                    gamespace=gamespace, method_name="event_completed", args=args, env={})
             except InternalError as e:
                 logging.error("Failed to call exec function about completed event "
                               "(" + str(event_id) + "): " + str(e))
@@ -395,7 +394,7 @@ class EventSchedule(Schedule):
     def __end_event__(self, gamespace, event):
 
         event_id = event.item_id
-        logging.info("Event {0} ended!".format(event_id))
+        logging.info("Event {0} has been ended!".format(event_id))
 
         end_action = self.end_event_actions.get(str(event.end_action), None)
 
@@ -423,7 +422,12 @@ class EventSchedule(Schedule):
 
                         ranks[account] = rank
 
-                yield self.events.update_event_participants_tournament_result(gamespace, event_id, participants, ranks)
+                if event.group:
+                    yield self.events.update_event_group_participants_tournament_result(
+                        gamespace, event_id, participants, ranks)
+                else:
+                    yield self.events.update_event_participants_tournament_result(
+                        gamespace, event_id, participants, ranks)
         else:
             leaderboard_top_entries = None
 
@@ -1160,6 +1164,33 @@ class EventsModel(Model):
         }
 
         raise Return(result)
+
+    @coroutine
+    @validate(gamespace_id="int", event_id="int")
+    def update_event_group_participants_tournament_result(self, gamespace_id, event_id, participants, ranks):
+
+        data = []
+        values = []
+
+        for group_id, participant in participants.iteritems():
+            rank = ranks.get(str(group_id), None)
+
+            if rank is None:
+                continue
+
+            values.append("(%s, %s, %s, %s, %s)")
+            data.extend([
+                event_id, gamespace_id, participant.group_id, "{}", rank
+            ])
+
+        yield self.db.execute(
+            """
+                INSERT INTO `event_group_participants`
+                (`event_id`, `gamespace_id`, `group_id`, `group_participation_profile`, `group_participation_tournament_result`) 
+                VALUES {0}
+                ON DUPLICATE KEY UPDATE 
+                `group_participation_tournament_result`=VALUES(`group_participation_tournament_result`);
+            """.format(",".join(values)), *data)
 
     @coroutine
     @validate(gamespace_id="int", event_id="int")

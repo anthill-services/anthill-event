@@ -18,20 +18,19 @@ will be sent to the participating players<br><br>
 score, rank, profile). In that case the function with name <code>event</code> should be created with such body 
 (the actual method should be named <code>event_completed</code>):<br>
 <pre><code>
-function event_completed(args, api, res)<br>
+async function event_completed(args)
 {
 &nbsp;&nbsp;&nbsp;&nbsp;// args[\"event\"] would contain event info
 &nbsp;&nbsp;&nbsp;&nbsp;// args[\"participants\"] would contain a list of participation objects to process 
 &nbsp;&nbsp;&nbsp;&nbsp;// (one object for each player/participant), like so:
 &nbsp;&nbsp;&nbsp;&nbsp;{
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;\"account\": &lt;account id&gt;, 
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;\"account\": &lt;account id&gt;, // or \"group\" for group-based event
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;\"profile\": &lt;participation profile&gt;, 
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;\"score\": &lt;score&gt;, 
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;\"rank\": &lt;rank&gt;
 &nbsp;&nbsp;&nbsp;&nbsp;}
 }
 </code></pre><br>
-Please note that method <code>res</code> should be called once processing is done.
 """
 
 

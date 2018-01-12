@@ -274,7 +274,7 @@ class EventSchedule(Schedule):
 
             try:
                 yield self.events.internal.request(
-                    "exec", "call_function_default_code",
+                    "exec", "call_server_function",
                     gamespace=gamespace, method_name="event_completed", args=args, env={})
             except InternalError as e:
                 logging.error("Failed to call exec function about completed event "

@@ -15,10 +15,8 @@ EVENT_END_ACTION_DESCRIPTION = """
 <b>Send Message</b><br>A message with detailed information about event (including score, rank, profile) 
 will be sent to the participating players<br><br>
 <b>Call Exec Function</b><br>A function on exec service will be called with detailed information about event (including 
-score, rank, profile). In that case the function with name <code>event</code> should be created with such body 
-(the actual method should be named <code>event_completed</code>):<br>
-<pre><code>
-async function event_completed(args)
+score, rank, profile). In that case the Server Code should be enabled, with function with name <code>event_completed</code>:
+<pre><code>async function event_completed(args)
 {
 &nbsp;&nbsp;&nbsp;&nbsp;// args[\"event\"] would contain event info
 &nbsp;&nbsp;&nbsp;&nbsp;// args[\"participants\"] would contain a list of participation objects to process 
@@ -30,6 +28,7 @@ async function event_completed(args)
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;\"rank\": &lt;rank&gt;
 &nbsp;&nbsp;&nbsp;&nbsp;}
 }
+event_completed.allow_call = true;
 </code></pre><br>
 """
 

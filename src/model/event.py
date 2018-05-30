@@ -583,9 +583,27 @@ class EventsModel(Model):
     def get_setup_db(self):
         return self.db
 
+    def has_delete_account_event(self):
+        return True
+
     @coroutine
-    def started(self):
-        yield super(EventsModel, self).started()
+    def accounts_deleted(self, gamespace, accounts, gamespace_only):
+        if gamespace_only:
+            yield self.db.execute("""
+                DELETE 
+                FROM `event_participants`
+                WHERE `gamespace_id`=%s AND `account_id` IN %s;
+            """, gamespace, accounts)
+        else:
+            yield self.db.execute("""
+                DELETE 
+                FROM `event_participants`
+                WHERE `account_id` IN %s;
+            """, accounts)
+
+    @coroutine
+    def started(self, application):
+        yield super(EventsModel, self).started(application)
 
         self.schedule.start()
 

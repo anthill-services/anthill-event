@@ -1,14 +1,12 @@
-import common.admin as a
 
-from tornado.gen import coroutine, Return
-import logging
+from anthill import common
+from anthill.common.validate import validate
+from anthill.common import admin as a
+
+from . model.event import EventNotFound, CategoryNotFound, EventFlags, EventEndAction
+
 import ujson
 import collections
-import common
-
-from common.validate import validate
-
-from model.event import EventNotFound, CategoryNotFound, EventFlags, EventEndAction
 
 
 EVENT_END_ACTION_DESCRIPTION = """
@@ -34,15 +32,14 @@ event_completed.allow_call = true;
 
 
 class CategoriesController(a.AdminController):
-    @coroutine
-    def get(self):
-        categories = yield self.application.events.list_categories(self.gamespace)
+    async def get(self):
+        categories = await self.application.events.list_categories(self.gamespace)
 
         result = {
             "categories": categories
         }
 
-        raise Return(result)
+        return result
 
     def render(self, data):
         return [
@@ -66,20 +63,18 @@ class CategoriesController(a.AdminController):
 
 
 class CategoryController(a.AdminController):
-    @coroutine
-    def delete(self, danger, **ingored):
+    async def delete(self, danger, **ingored):
 
         if danger != "confirm":
             raise a.Redirect("category", category_id=self.context.get("category_id"))
 
         category_id = self.context.get("category_id")
-        yield self.application.events.delete_category(self.gamespace, category_id)
+        await self.application.events.delete_category(self.gamespace, category_id)
 
         raise a.Redirect("categories", message="Category has been deleted")
 
-    @coroutine
-    def get(self, category_id):
-        category = yield self.application.events.get_category(self.gamespace, category_id)
+    async def get(self, category_id):
+        category = await self.application.events.get_category(self.gamespace, category_id)
 
         scheme_json = category.scheme
 
@@ -88,7 +83,7 @@ class CategoryController(a.AdminController):
             "category_name": category.name
         }
 
-        raise Return(result)
+        return result
 
     def render(self, data):
         return [
@@ -127,8 +122,7 @@ class CategoryController(a.AdminController):
     def access_scopes(self):
         return ["event_admin"]
 
-    @coroutine
-    def update(self, scheme, category_name):
+    async def update(self, scheme, category_name):
 
         category_id = self.context.get("category_id")
 
@@ -137,7 +131,7 @@ class CategoryController(a.AdminController):
         except (KeyError, ValueError):
             raise a.ActionError("Corrupted json")
 
-        yield self.application.events.update_category(self.gamespace, category_id, scheme_data, category_name)
+        await self.application.events.update_category(self.gamespace, category_id, scheme_data, category_name)
 
         raise a.Redirect(
             "category",
@@ -146,21 +140,19 @@ class CategoryController(a.AdminController):
 
 
 class ChooseCategoryController(a.AdminController):
-    @coroutine
-    def apply(self, category):
+    async def apply(self, category):
         raise a.Redirect("new_event", category=category)
 
-    @coroutine
-    def get(self, category=None):
+    async def get(self, category=None):
 
-        categories = yield self.application.events.list_categories(self.gamespace)
+        categories = await self.application.events.list_categories(self.gamespace)
 
-        raise Return({
+        return {
             "category": category,
             "categories": {
                 cat.category_id: cat.name for cat in categories
             }
-        })
+        }
 
     def render(self, data):
         return [
@@ -188,15 +180,14 @@ class ChooseCategoryController(a.AdminController):
 
 
 class CommonController(a.AdminController):
-    @coroutine
-    def get(self):
-        scheme = yield self.application.events.get_common_scheme(self.gamespace)
+    async def get(self):
+        scheme = await self.application.events.get_common_scheme(self.gamespace)
 
         result = {
             "scheme": scheme
         }
 
-        raise Return(result)
+        return result
 
     def render(self, data):
         return [
@@ -218,41 +209,38 @@ class CommonController(a.AdminController):
     def access_scopes(self):
         return ["event_admin"]
 
-    @coroutine
-    def update(self, scheme):
+    async def update(self, scheme):
         try:
             scheme_data = ujson.loads(scheme)
         except (KeyError, ValueError):
             raise a.ActionError("Corrupted json")
 
-        yield self.application.events.update_common_scheme(self.gamespace, scheme_data)
+        await self.application.events.update_common_scheme(self.gamespace, scheme_data)
         raise a.Redirect("common", message="Common template has been updated")
 
 
 class EventController(a.AdminController):
-    @coroutine
-    def delete(self, **ignored):
+    async def delete(self, **ignored):
 
         event_id = self.context.get("event_id")
 
         try:
-            event = yield self.application.events.get_event(self.gamespace, event_id)
+            event = await self.application.events.get_event(self.gamespace, event_id)
         except EventNotFound:
             raise a.ActionError("No such event")
 
-        yield self.application.events.delete_event(self.gamespace, event_id)
+        await self.application.events.delete_event(self.gamespace, event_id)
         raise a.Redirect(
             "events",
             message="Event has been deleted",
             category=event.category_id)
 
-    @coroutine
-    def get(self, event_id):
+    async def get(self, event_id):
 
         events = self.application.events
 
         try:
-            event = yield events.get_event(self.gamespace, event_id)
+            event = await events.get_event(self.gamespace, event_id)
         except EventNotFound:
             raise a.ActionError("Event was not found.")
 
@@ -267,14 +255,14 @@ class EventController(a.AdminController):
         end_dt = str(event.time_end)
         end_action = str(event.end_action)
 
-        common_scheme = yield events.get_common_scheme(self.gamespace)
-        category = yield events.get_category(self.gamespace, category_id)
+        common_scheme = await events.get_common_scheme(self.gamespace)
+        category = await events.get_category(self.gamespace, category_id)
         category_scheme = category.scheme
 
         scheme = common_scheme.copy()
         common.update(scheme, category_scheme)
 
-        raise Return({
+        return {
             "enabled": enabled,
             "tournament": tournament,
             "clustered": clustered,
@@ -287,7 +275,7 @@ class EventController(a.AdminController):
             "category": category_id,
             "category_name": category_name,
             "end_action": end_action
-        })
+        }
 
     def render(self, data):
 
@@ -337,17 +325,16 @@ class EventController(a.AdminController):
             ])
         ]
 
-    @coroutine
     @validate(event_data="load_json_dict", start_dt="datetime", end_dt="datetime",
               enabled="bool", tournament="bool", end_action="str")
-    def save(self, event_data, start_dt, end_dt, enabled=False, tournament=False,
+    async def save(self, event_data, start_dt, end_dt, enabled=False, tournament=False,
              end_action=EventEndAction.NONE, **ignore):
         event_id = self.context.get("event_id")
 
         events = self.application.events
 
         try:
-            event = yield events.get_event(self.gamespace, event_id)
+            event = await events.get_event(self.gamespace, event_id)
         except EventNotFound:
             raise a.ActionError("Event was not found.")
 
@@ -357,7 +344,7 @@ class EventController(a.AdminController):
 
         end_action = EventEndAction(end_action)
 
-        yield events.update_event(
+        await events.update_event(
             self.gamespace, event_id, enabled, flags,
             event_data, start_dt, end_dt, end_action)
 
@@ -373,20 +360,18 @@ class EventController(a.AdminController):
 class EventsController(a.AdminController):
     EVENTS_IN_PAGE = 20
 
-    @coroutine
-    def apply(self, category=None):
+    async def apply(self, category=None):
 
         if not category:
             raise a.Redirect("choose_category")
 
         raise a.Redirect("events", category=category)
 
-    @coroutine
-    def get(self, category=None, page=1):
-        categories = yield self.application.events.list_categories(
+    async def get(self, category=None, page=1):
+        categories = await self.application.events.list_categories(
             self.gamespace)
 
-        events, pages = yield self.application.events.list_paged_events(
+        events, pages = await self.application.events.list_paged_events(
             self.gamespace,
             EventsController.EVENTS_IN_PAGE, page,
             category_id=category)
@@ -398,12 +383,12 @@ class EventsController(a.AdminController):
 
         cats[0] = "< Select >"
 
-        raise Return({
+        return {
             "events": events,
             "category": category,
             "categories": cats,
             "pages": pages
-        })
+        }
 
     def render(self, data):
         tbl_rows = []
@@ -487,15 +472,14 @@ class EventsController(a.AdminController):
 
 
 class NewCategoryController(a.AdminController):
-    @coroutine
-    def create(self, scheme, category_name):
+    async def create(self, scheme, category_name):
 
         try:
             scheme_data = ujson.loads(scheme)
         except (KeyError, ValueError):
             raise a.ActionError("Corrupted json")
 
-        category_id = yield self.application.events.create_category(self.gamespace, category_name, scheme_data)
+        category_id = await self.application.events.create_category(self.gamespace, category_name, scheme_data)
 
         raise a.Redirect(
             "category",
@@ -532,11 +516,11 @@ class NewCategoryController(a.AdminController):
 
 
 class NewEventController(a.AdminController):
-    @coroutine
     @validate(event_data="load_json_dict", start_dt="datetime", end_dt="datetime", enabled="bool",
               tournament="bool", clustered="bool", group="bool", end_action="str_name")
-    def create(self, event_data, start_dt, end_dt, enabled=False, tournament=False, clustered=False, group=False,
-               end_action=EventEndAction.NONE, **ignore):
+    async def create(self, event_data, start_dt, end_dt,
+                     enabled=False, tournament=False, clustered=False, group=False,
+                     end_action=EventEndAction.NONE, **ignore):
         category_id = self.context.get("category")
 
         flags = EventFlags()
@@ -553,7 +537,7 @@ class NewEventController(a.AdminController):
         end_action = EventEndAction(end_action)
 
         try:
-            event_id = yield self.application.events.create_event(
+            event_id = await self.application.events.create_event(
                 self.gamespace, category_id, enabled, flags,
                 event_data, start_dt, end_dt, end_action)
         except CategoryNotFound:
@@ -564,21 +548,20 @@ class NewEventController(a.AdminController):
             message="Event has been created",
             event_id=event_id)
 
-    @coroutine
     @validate(category="int", clone="int")
-    def get(self, category, clone=None):
+    async def get(self, category, clone=None):
 
         events = self.application.events
 
-        common_scheme = yield events.get_common_scheme(self.gamespace)
+        common_scheme = await events.get_common_scheme(self.gamespace)
 
-        category = yield events.get_category(self.gamespace, category)
+        category = await events.get_category(self.gamespace, category)
 
         category_name = category.name
         category_scheme = category.scheme
 
         def update(d, u):
-            for k, v in u.iteritems():
+            for k, v in u.items():
                 if isinstance(v, collections.Mapping):
                     r = update(d.get(k, {}), v)
                     d[k] = r
@@ -601,7 +584,7 @@ class NewEventController(a.AdminController):
         if clone:
 
             try:
-                event = yield events.get_event(self.gamespace, clone)
+                event = await events.get_event(self.gamespace, clone)
             except EventNotFound:
                 raise a.ActionError("Event was not found.")
 
@@ -614,7 +597,7 @@ class NewEventController(a.AdminController):
             end_dt = str(event.time_end)
             end_action = str(event.end_action)
 
-        raise Return({
+        return {
             "scheme": scheme,
             "enabled": enabled,
             "tournament": tournament,
@@ -625,7 +608,7 @@ class NewEventController(a.AdminController):
             "start_dt": start_dt,
             "end_dt": end_dt,
             "end_action": end_action
-        })
+        }
 
     def render(self, data):
 

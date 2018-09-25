@@ -1,23 +1,20 @@
 
-import logging
-import traceback
-import json
-
-from common.handler import AuthenticatedHandler
-from common.access import scoped, AccessToken
-
-from tornado.gen import coroutine, Return
 from tornado.web import HTTPError
 
+from anthill.common.handler import AuthenticatedHandler
+from anthill.common.access import scoped, AccessToken
+from anthill.common.validate import validate
 
-from model.event import EventNotFound, EventError
-from common.validate import ValidationError, validate
+from . model.event import EventNotFound, EventError
+
+import logging
+import traceback
+import ujson
 
 
 class EventJoinHandler(AuthenticatedHandler):
     @scoped(scopes=["event_join"])
-    @coroutine
-    def post(self, event_id):
+    async def post(self, event_id):
         token = self.token
         account_id = token.account
         gamespace_id = token.get(AccessToken.GAMESPACE)
@@ -26,12 +23,12 @@ class EventJoinHandler(AuthenticatedHandler):
         leaderboard_info = self.get_argument("leaderboard_info", None)
         if leaderboard_info:
             try:
-                leaderboard_info = json.loads(leaderboard_info)
+                leaderboard_info = ujson.loads(leaderboard_info)
             except (KeyError, ValueError):
-                raise HTTPError(400, "JSON 'leaderboard_info' is corrupted")
+                raise HTTPError(400, "json 'leaderboard_info' is corrupted")
 
         try:
-            yield self.application.events.join_event(
+            await self.application.events.join_event(
                 gamespace_id, event_id, account_id,
                 score=score, leaderboard_info=leaderboard_info)
         except EventError as e:
@@ -48,8 +45,7 @@ class EventJoinHandler(AuthenticatedHandler):
 
 class EventGroupJoinHandler(AuthenticatedHandler):
     @scoped(scopes=["event_join"])
-    @coroutine
-    def post(self, event_id):
+    async def post(self, event_id):
         token = self.token
         account_id = token.account
         gamespace_id = token.get(AccessToken.GAMESPACE)
@@ -59,12 +55,12 @@ class EventGroupJoinHandler(AuthenticatedHandler):
         leaderboard_info = self.get_argument("leaderboard_info", None)
         if leaderboard_info:
             try:
-                leaderboard_info = json.loads(leaderboard_info)
+                leaderboard_info = ujson.loads(leaderboard_info)
             except (KeyError, ValueError):
-                raise HTTPError(400, "JSON 'leaderboard_info' is corrupted")
+                raise HTTPError(400, "json 'leaderboard_info' is corrupted")
 
         try:
-            yield self.application.events.join_group_event(
+            await self.application.events.join_group_event(
                 gamespace_id, event_id, group_id, account_id,
                 score=score, leaderboard_info=leaderboard_info)
         except EventError as e:
@@ -81,13 +77,12 @@ class EventGroupJoinHandler(AuthenticatedHandler):
 
 class EventLeaveHandler(AuthenticatedHandler):
     @scoped(scopes=["event_leave"])
-    @coroutine
-    def post(self, event_id):
+    async def post(self, event_id):
         account_id = self.current_user.token.account
         gamespace_id = self.current_user.token.get(AccessToken.GAMESPACE)
 
         try:
-            yield self.application.events.leave_event(
+            await self.application.events.leave_event(
                 gamespace_id, event_id, account_id)
         except EventError as e:
             raise HTTPError(e.code, str(e))
@@ -103,14 +98,13 @@ class EventLeaveHandler(AuthenticatedHandler):
 
 class EventGroupLeaveHandler(AuthenticatedHandler):
     @scoped(scopes=["event_leave"])
-    @coroutine
-    def post(self, event_id):
+    async def post(self, event_id):
         account_id = self.current_user.token.account
         gamespace_id = self.current_user.token.get(AccessToken.GAMESPACE)
         group_id = self.get_argument("group_id")
 
         try:
-            yield self.application.events.leave_event(
+            await self.application.events.leave_event(
                 gamespace_id, event_id, account_id, group_id=group_id)
         except EventError as e:
             raise HTTPError(e.code, str(e))
@@ -126,8 +120,7 @@ class EventGroupLeaveHandler(AuthenticatedHandler):
 
 class EventProfileHandler(AuthenticatedHandler):
     @scoped()
-    @coroutine
-    def get(self, event_id):
+    async def get(self, event_id):
         events = self.application.events
 
         account_id = self.token.account
@@ -138,7 +131,7 @@ class EventProfileHandler(AuthenticatedHandler):
             path = filter(bool, path.split("/"))
 
         try:
-            data = yield events.get_profile(
+            data = await events.get_profile(
                 gamespace_id, event_id, account_id, path=path)
         except EventError as e:
             raise HTTPError(e.code, str(e))
@@ -153,8 +146,7 @@ class EventProfileHandler(AuthenticatedHandler):
         self.dumps(data)
 
     @scoped(scopes=["event_profile_write"])
-    @coroutine
-    def post(self, event_id):
+    async def post(self, event_id):
         events = self.application.events
 
         merge = self.get_argument("merge", "true") == "true"
@@ -166,12 +158,12 @@ class EventProfileHandler(AuthenticatedHandler):
             path = filter(bool, path.split("/"))
 
         try:
-            profile = json.loads(self.get_argument("profile"))
-        except:
+            profile = ujson.loads(self.get_argument("profile"))
+        except Exception:
             raise HTTPError(400, "Not a valid profile.")
 
         try:
-            new_data = yield events.update_profile(
+            new_data = await events.update_profile(
                 gamespace_id, event_id, account_id,
                 profile, path=path, merge=merge)
         except EventError as e:
@@ -189,8 +181,7 @@ class EventProfileHandler(AuthenticatedHandler):
 
 class EventGroupProfileHandler(AuthenticatedHandler):
     @scoped(scopes=[])
-    @coroutine
-    def get(self, event_id):
+    async def get(self, event_id):
         events = self.application.events
 
         account_id = self.token.account
@@ -202,7 +193,7 @@ class EventGroupProfileHandler(AuthenticatedHandler):
             path = filter(bool, path.split("/"))
 
         try:
-            data = yield events.get_group_profile(
+            data = await events.get_group_profile(
                 gamespace_id, event_id, group_id, path=path)
         except EventError as e:
             raise HTTPError(e.code, str(e))
@@ -217,8 +208,7 @@ class EventGroupProfileHandler(AuthenticatedHandler):
         self.dumps(data)
 
     @scoped(scopes=["event_profile_write"])
-    @coroutine
-    def post(self, event_id):
+    async def post(self, event_id):
         events = self.application.events
 
         merge = self.get_argument("merge", "true") == "true"
@@ -226,17 +216,16 @@ class EventGroupProfileHandler(AuthenticatedHandler):
         gamespace_id = self.token.get(AccessToken.GAMESPACE)
         group_id = self.get_argument("group_id")
 
-        path = self.get_argument("path", None)
-        if path:
-            path = filter(bool, path.split("/"))
+        path_str = self.get_argument("path", None)
+        path = filter(bool, path_str.split("/")) if path_str else []
 
         try:
-            group_profile = json.loads(self.get_argument("group_profile"))
-        except:
+            group_profile = ujson.loads(self.get_argument("group_profile"))
+        except Exception:
             raise HTTPError(400, "Not a valid 'group_profile'.")
 
         try:
-            new_data = yield events.update_group_profile(
+            new_data = await events.update_group_profile(
                 gamespace_id, event_id, group_id,
                 group_profile, path=path, merge=merge)
         except EventError as e:
@@ -254,8 +243,7 @@ class EventGroupProfileHandler(AuthenticatedHandler):
 
 class EventGroupParticipantsHandler(AuthenticatedHandler):
     @scoped(scopes=[])
-    @coroutine
-    def get(self, event_id):
+    async def get(self, event_id):
         events = self.application.events
 
         account_id = self.token.account
@@ -263,7 +251,7 @@ class EventGroupParticipantsHandler(AuthenticatedHandler):
         group_id = self.get_argument("group_id")
 
         try:
-            participants = yield events.list_group_account_participants(
+            participants = await events.list_group_account_participants(
                 gamespace_id, event_id, group_id)
         except EventError as e:
             raise HTTPError(e.code, str(e))
@@ -281,14 +269,16 @@ class EventGroupParticipantsHandler(AuthenticatedHandler):
                     "profile": participant.profile,
                     "score": participant.score
                 }
-                for account_id, participant in participants.iteritems()
+                for account_id, participant in participants.items()
             }
         })
 
     @scoped(scopes=["event_profile_write"])
-    @coroutine
-    def post(self, event_id):
+    async def post(self, event_id):
         events = self.application.events
+
+        path_str = self.get_argument("path", None)
+        path = filter(bool, path_str.split("/")) if path_str else []
 
         merge = self.get_argument("merge", "true") == "true"
         account_id = self.token.account
@@ -296,14 +286,14 @@ class EventGroupParticipantsHandler(AuthenticatedHandler):
         group_id = self.get_argument("group_id")
 
         try:
-            group_profile = json.loads(self.get_argument("group_profile"))
-        except:
+            group_profile = ujson.loads(self.get_argument("group_profile"))
+        except Exception:
             raise HTTPError(400, "Not a valid 'group_profile'.")
 
         try:
-            new_data = yield events.update_group_profile(
+            new_data = await events.update_group_profile(
                 gamespace_id, event_id, group_id,
-                group_profile, merge)
+                group_profile, path, merge)
         except EventError as e:
             raise HTTPError(e.code, str(e))
         except EventNotFound:
@@ -319,8 +309,7 @@ class EventGroupParticipantsHandler(AuthenticatedHandler):
 
 class EventAddScoreHandler(AuthenticatedHandler):
     @scoped(scopes=["event_write"])
-    @coroutine
-    def post(self, event_id):
+    async def post(self, event_id):
 
         account_id = self.token.account
         gamespace_id = self.token.get(AccessToken.GAMESPACE)
@@ -334,12 +323,12 @@ class EventAddScoreHandler(AuthenticatedHandler):
         leaderboard_info = self.get_argument("leaderboard_info", None)
         if leaderboard_info:
             try:
-                leaderboard_info = json.loads(leaderboard_info)
+                leaderboard_info = ujson.loads(leaderboard_info)
             except (KeyError, ValueError):
-                raise HTTPError(400, "JSON 'leaderboard_info' is corrupted")
+                raise HTTPError(400, "json 'leaderboard_info' is corrupted")
 
         try:
-            new_score = yield self.application.events.add_score(
+            new_score = await self.application.events.add_score(
                 gamespace_id, event_id, account_id,
                 score, leaderboard_info, auto_join=auto_join)
         except EventError as e:
@@ -358,8 +347,7 @@ class EventAddScoreHandler(AuthenticatedHandler):
 
 class EventGroupAddScoreHandler(AuthenticatedHandler):
     @scoped(scopes=["event_write"])
-    @coroutine
-    def post(self, event_id):
+    async def post(self, event_id):
 
         account_id = self.token.account
         gamespace_id = self.token.get(AccessToken.GAMESPACE)
@@ -374,12 +362,12 @@ class EventGroupAddScoreHandler(AuthenticatedHandler):
         leaderboard_info = self.get_argument("leaderboard_info", None)
         if leaderboard_info:
             try:
-                leaderboard_info = json.loads(leaderboard_info)
+                leaderboard_info = ujson.loads(leaderboard_info)
             except (KeyError, ValueError):
-                raise HTTPError(400, "JSON 'leaderboard_info' is corrupted")
+                raise HTTPError(400, "json 'leaderboard_info' is corrupted")
 
         try:
-            new_score = yield self.application.events.add_group_score(
+            new_score = await self.application.events.add_group_score(
                 gamespace_id, event_id, group_id, account_id,
                 score, leaderboard_info=leaderboard_info, auto_join=auto_join)
         except EventError as e:
@@ -398,8 +386,7 @@ class EventGroupAddScoreHandler(AuthenticatedHandler):
 
 class EventUpdateScoreHandler(AuthenticatedHandler):
     @scoped(scopes=["event_write"])
-    @coroutine
-    def post(self, event_id):
+    async def post(self, event_id):
         score = self.get_argument("score")
 
         account_id = self.token.account
@@ -413,12 +400,12 @@ class EventUpdateScoreHandler(AuthenticatedHandler):
         leaderboard_info = self.get_argument("leaderboard_info")
         if leaderboard_info:
             try:
-                leaderboard_info = json.loads(leaderboard_info)
+                leaderboard_info = ujson.loads(leaderboard_info)
             except (KeyError, ValueError):
-                raise HTTPError(400, "JSON 'leaderboard_info' is corrupted")
+                raise HTTPError(400, "json 'leaderboard_info' is corrupted")
 
         try:
-            new_score = yield self.application.events.update_score(
+            new_score = await self.application.events.update_score(
                 gamespace_id, event_id, account_id,
                 score, leaderboard_info)
         except EventError as e:
@@ -438,8 +425,7 @@ class EventUpdateScoreHandler(AuthenticatedHandler):
 
 class EventGroupUpdateScoreHandler(AuthenticatedHandler):
     @scoped(scopes=["event_write"])
-    @coroutine
-    def post(self, event_id):
+    async def post(self, event_id):
         score = self.get_argument("score")
 
         account_id = self.token.account
@@ -454,12 +440,12 @@ class EventGroupUpdateScoreHandler(AuthenticatedHandler):
         leaderboard_info = self.get_argument("leaderboard_info")
         if leaderboard_info:
             try:
-                leaderboard_info = json.loads(leaderboard_info)
+                leaderboard_info = ujson.loads(leaderboard_info)
             except (KeyError, ValueError):
-                raise HTTPError(400, "JSON 'leaderboard_info' is corrupted")
+                raise HTTPError(400, "json 'leaderboard_info' is corrupted")
 
         try:
-            new_score = yield self.application.events.update_group_score(
+            new_score = await self.application.events.update_group_score(
                 gamespace_id, event_id, group_id, account_id,
                 score, leaderboard_info, auto_join=auto_join)
         except EventError as e:
@@ -479,8 +465,7 @@ class EventGroupUpdateScoreHandler(AuthenticatedHandler):
 
 class EventsHandler(AuthenticatedHandler):
     @scoped()
-    @coroutine
-    def get(self):
+    async def get(self):
 
         events = self.application.events
         account_id = self.token.account
@@ -492,7 +477,7 @@ class EventsHandler(AuthenticatedHandler):
         extra_end_time = self.get_argument("extra_end_time", self.get_argument("extra_time", 0))
 
         try:
-            events_list = yield events.list_events(
+            events_list = await events.list_events(
                 gamespace_id, account_id,
                 group_id=group_id,
 
@@ -516,16 +501,15 @@ class InternalHandler(object):
     def __init__(self, application):
         self.application = application
 
-    @coroutine
     @validate(gamespace="int", event_id="int", account="int", path="str", profile="json", merge="bool")
-    def update_event_profile(self, gamespace, event_id, account, profile, path=None, merge=True):
+    async def update_event_profile(self, gamespace, event_id, account, profile, path=None, merge=True):
         events = self.application.events
 
         if path:
             path = filter(bool, path.split("/"))
 
         try:
-            new_data = yield events.update_profile(
+            new_data = await events.update_profile(
                 gamespace, event_id, account,
                 profile, path=path, merge=merge)
         except EventError as e:
@@ -538,15 +522,14 @@ class InternalHandler(object):
                 500, "Failed to update profile for "
                      "the user '{0}' in the event '{1}': {2}".format(account, event_id, e))
 
-        raise Return(new_data)
+        return new_data
 
-    @coroutine
     @validate(gamespace="int", account="int")
-    def get_list(self, gamespace, account, group=0, extra_start_time=0, extra_end_time=0, extra_time=0):
+    async def get_list(self, gamespace, account, group=0, extra_start_time=0, extra_end_time=0, extra_time=0):
         events = self.application.events
 
         try:
-            events_list = yield events.list_events(
+            events_list = await events.list_events(
                 gamespace, account,
                 group_id=group,
                 extra_start_time=extra_start_time,
@@ -558,7 +541,7 @@ class InternalHandler(object):
                 500, "Failed to fetch a list of "
                 "current events available for user '{0}': {1}".format(account, e))
         else:
-            raise Return([
+            return [
                 event.dump()
                 for event in events_list
-            ])
+            ]

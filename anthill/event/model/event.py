@@ -1,23 +1,17 @@
+from anthill.common.access import utc_time
+from anthill.common.database import DuplicateError, DatabaseError
+from anthill.common.profile import ProfileError
+from anthill.common.internal import Internal, InternalError
+from anthill.common.model import Model
+from anthill.common.schedule import Schedule
+from anthill.common.options import options
+from anthill.common.validate import validate
+from anthill.common import Flags, Enum, cached, profile
+
 import datetime
 import ujson
 import logging
 import pytz
-
-from tornado.gen import coroutine, Return
-
-from common.access import utc_time
-from common.database import DuplicateError, DatabaseError
-from common.profile import ProfileError
-from common.internal import Internal, InternalError
-from common.model import Model
-from common.schedule import Schedule
-from common.options import options
-from common.validate import validate
-from common import Flags, Enum, cached
-
-import common.database
-import common.keyvalue
-import common.profile
 
 
 class CategoryNotFound(Exception):
@@ -192,8 +186,7 @@ class EventSchedule(Schedule):
             EventEndAction.EXEC: self.__end_action_exec__,
         }
 
-    @coroutine
-    def __end_action_exec__(self, gamespace, event, participants, leaderboard_top_entries=None):
+    async def __end_action_exec__(self, gamespace, event, participants, leaderboard_top_entries=None):
         """
         Once event is finished, calls exec function over batch of participants
         If the event is tournament-like (with leaderboards), each participant rank is also calculated.
@@ -210,7 +203,7 @@ class EventSchedule(Schedule):
 
         if event.tournament:
             if leaderboard_top_entries:
-                for cluster_id, cluster in leaderboard_top_entries.iteritems():
+                for cluster_id, cluster in leaderboard_top_entries.items():
 
                     if not cluster:
                         continue
@@ -262,7 +255,7 @@ class EventSchedule(Schedule):
             return
 
         def chunks(l, n):
-            for i in xrange(0, len(l), n):
+            for i in range(0, len(l), n):
                 yield l[i:i + n]
 
         for chunk in chunks(participants_out, exec_call_chunk_size):
@@ -273,7 +266,7 @@ class EventSchedule(Schedule):
             }
 
             try:
-                yield self.events.internal.request(
+                await self.events.internal.request(
                     "exec", "call_server_function",
                     gamespace=gamespace, method_name="event_completed", args=args, env={})
             except InternalError as e:
@@ -283,8 +276,7 @@ class EventSchedule(Schedule):
                 logging.info("Successfully called exec function about completed event "
                              "(" + str(event_id) + ") to a chunk of participants (" + str(len(chunk)) + ")")
 
-    @coroutine
-    def __end_action_message__(self, gamespace, event, participants, leaderboard_top_entries=None):
+    async def __end_action_message__(self, gamespace, event, participants, leaderboard_top_entries=None):
         """
         Once event is finished, sends a message to every participant.
         If the event is tournament-like (with leaderboards), each participant rank is also calculated.
@@ -299,7 +291,7 @@ class EventSchedule(Schedule):
 
         if event.tournament:
             if leaderboard_top_entries:
-                for cluster_id, cluster in leaderboard_top_entries.iteritems():
+                for cluster_id, cluster in leaderboard_top_entries.items():
 
                     if not cluster:
                         continue
@@ -373,13 +365,13 @@ class EventSchedule(Schedule):
             return
 
         def chunks(l, n):
-            for i in xrange(0, len(l), n):
+            for i in range(0, len(l), n):
                 yield l[i:i + n]
 
         for chunk in chunks(messages, 1000):
 
             try:
-                yield self.events.internal.request(
+                await self.events.internal.request(
                     "message", "send_batch",
                     gamespace=gamespace, sender=0, messages=chunk,
                     authoritative=True)
@@ -390,8 +382,7 @@ class EventSchedule(Schedule):
                 logging.info("Successfully sent reward messages about completed event "
                              "(" + str(event_id) + ") to one chunk of data (" + str(len(chunk)) + ")")
 
-    @coroutine
-    def __end_event__(self, gamespace, event):
+    async def __end_event__(self, gamespace, event):
 
         event_id = event.item_id
         logging.info("Event {0} has been ended!".format(event_id))
@@ -399,17 +390,17 @@ class EventSchedule(Schedule):
         end_action = self.end_event_actions.get(str(event.end_action), None)
 
         if event.group:
-            participants = yield self.events.list_event_group_participants(gamespace, event_id)
+            participants = await self.events.list_event_group_participants(gamespace, event_id)
         else:
-            participants = yield self.events.list_event_participants(gamespace, event_id)
+            participants = await self.events.list_event_participants(gamespace, event_id)
 
         if event.tournament:
-            leaderboard_top_entries = yield self.events.__get_leaderboard_top__(gamespace, event_id, event.clustered)
+            leaderboard_top_entries = await self.events.__get_leaderboard_top__(gamespace, event_id, event.clustered)
 
             if leaderboard_top_entries:
                 ranks = {}
 
-                for cluster_id, cluster in leaderboard_top_entries.iteritems():
+                for cluster_id, cluster in leaderboard_top_entries.items():
 
                     if not cluster:
                         continue
@@ -423,18 +414,18 @@ class EventSchedule(Schedule):
                         ranks[account] = rank
 
                 if event.group:
-                    yield self.events.update_event_group_participants_tournament_result(
+                    await self.events.update_event_group_participants_tournament_result(
                         gamespace, event_id, participants, ranks)
                 else:
-                    yield self.events.update_event_participants_tournament_result(
+                    await self.events.update_event_participants_tournament_result(
                         gamespace, event_id, participants, ranks)
         else:
             leaderboard_top_entries = None
 
         if end_action:
-            yield end_action(gamespace, event, participants, leaderboard_top_entries)
+            await end_action(gamespace, event, participants, leaderboard_top_entries)
 
-        yield self.db.execute(
+        await self.db.execute(
             """
                 UPDATE `events`
                 SET `event_status`=%s, `event_processing`=0
@@ -442,14 +433,13 @@ class EventSchedule(Schedule):
                 LIMIT 1;
             """, EVENT_STATUS_ENDED, event_id)
 
-    @coroutine
-    def __start_event__(self, gamespace, event):
+    async def __start_event__(self, gamespace, event):
 
         event_id = event.item_id
 
         logging.info("Event {0} started!".format(event_id))
 
-        yield self.db.execute(
+        await self.db.execute(
             """
                 UPDATE `events`
                 SET `event_status`=%s, `event_processing`=0
@@ -458,7 +448,7 @@ class EventSchedule(Schedule):
             """, EVENT_STATUS_ACTIVE, event_id)
 
     def event_end_cancelled(self, gamespace, event_id, tournament):
-        logging.warn("Event {0} cancelled for ending".format(event_id))
+        logging.warning("Event {0} cancelled for ending".format(event_id))
 
         return self.db.execute(
             """
@@ -469,7 +459,7 @@ class EventSchedule(Schedule):
             """, event_id)
 
     def event_start_cancelled(self, gamespace, event_id):
-        logging.warn("Event {0} cancelled for starting".format(event_id))
+        logging.warning("Event {0} cancelled for starting".format(event_id))
 
         return self.db.execute(
             """
@@ -479,21 +469,19 @@ class EventSchedule(Schedule):
                 LIMIT 1;
             """, event_id)
 
-    @coroutine
-    def cancelled(self, call_name, *args, **kwargs):
+    async def cancelled(self, call_name, *args, **kwargs):
 
         handlers = {
             "end_event": self.event_end_cancelled,
             "start_event": self.event_start_cancelled
         }
 
-        yield handlers[call_name](*args, **kwargs)
+        await handlers[call_name](*args, **kwargs)
 
-    @coroutine
-    def update(self):
-        with (yield self.db.acquire(auto_commit=False)) as db:
+    async def update(self):
+        async with self.db.acquire(auto_commit=False) as db:
             try:
-                events = yield db.query(
+                events = await db.query(
                     """
                         SELECT *
                         FROM `events`
@@ -545,7 +533,7 @@ class EventSchedule(Schedule):
                             gamespace, EventAdapter(event))
 
                 if events_ids:
-                    yield db.execute(
+                    await db.execute(
                         """
                             UPDATE `events`
                             SET `event_processing`=1
@@ -553,23 +541,21 @@ class EventSchedule(Schedule):
                         """, events_ids
                     )
 
-            yield db.commit()
+            await db.commit()
 
 
 class EventsModel(Model):
-    @coroutine
-    def __delete_leaderboard__(self, event_id, gamespace, clustered):
+    async def __delete_leaderboard__(self, event_id, gamespace, clustered):
         leaderboard_name = EventAdapter.tournament_leaderboard_name(event_id, clustered)
         leaderboard_order = EventAdapter.tournament_leaderboard_order()
 
         try:
-            yield self.internal.request(
+            await self.internal.request(
                 "leaderboard", "delete",
                 gamespace=gamespace, sort_order=leaderboard_order,
                 leaderboard_name=leaderboard_name)
-
         except InternalError as e:
-            logging.exception("Failed to delete a leaderboard: " + e.message)
+            logging.exception("Failed to delete a leaderboard: " + str(e))
 
     def __init__(self, db, app):
         self.db = db
@@ -586,39 +572,35 @@ class EventsModel(Model):
     def has_delete_account_event(self):
         return True
 
-    @coroutine
-    def accounts_deleted(self, gamespace, accounts, gamespace_only):
+    async def accounts_deleted(self, gamespace, accounts, gamespace_only):
         if gamespace_only:
-            yield self.db.execute("""
+            await self.db.execute("""
                 DELETE 
                 FROM `event_participants`
                 WHERE `gamespace_id`=%s AND `account_id` IN %s;
             """, gamespace, accounts)
         else:
-            yield self.db.execute("""
+            await self.db.execute("""
                 DELETE 
                 FROM `event_participants`
                 WHERE `account_id` IN %s;
             """, accounts)
 
-    @coroutine
-    def started(self, application):
-        yield super(EventsModel, self).started(application)
+    async def started(self, application):
+        await super(EventsModel, self).started(application)
 
         self.schedule.start()
 
-    @coroutine
-    def stopped(self):
-        yield super(EventsModel, self).stopped()
-        yield self.schedule.stop()
+    async def stopped(self):
+        await super(EventsModel, self).stopped()
+        await self.schedule.stop()
 
-    @coroutine
-    def __get_leaderboard_top__(self, gamespace, event_id, clustered):
+    async def __get_leaderboard_top__(self, gamespace, event_id, clustered):
         leaderboard_name = EventAdapter.tournament_leaderboard_name(event_id, clustered)
         leaderboard_order = EventAdapter.tournament_leaderboard_order()
 
         try:
-            top_entries = yield self.internal.request(
+            top_entries = await self.internal.request(
                 "leaderboard", "get_top_all_clusters",
                 gamespace=gamespace, sort_order=leaderboard_order,
                 leaderboard_name=leaderboard_name)
@@ -626,31 +608,29 @@ class EventsModel(Model):
             if e.code == 404:
                 logging.info("No such leaderboard: " + leaderboard_name)
             else:
-                logging.exception("Failed to get leaderboard: " + e.message)
+                logging.exception("Failed to get leaderboard: " + str(e))
 
-            raise Return(None)
+            return None
         else:
-            raise Return(top_entries)
+            return top_entries
 
-    @coroutine
-    def __post_score_to_leaderboard__(self, account, gamespace, score, event_id, clustered,
-                                      display_name, expire_in, profile):
+    async def __post_score_to_leaderboard__(self, account, gamespace, score, event_id, clustered,
+                                            display_name, expire_in, profile):
         leaderboard_name = EventAdapter.tournament_leaderboard_name(event_id, clustered)
         leaderboard_order = EventAdapter.tournament_leaderboard_order()
 
         try:
-            yield self.internal.request(
+            await self.internal.request(
                 "leaderboard", "post",
                 account=account, gamespace=gamespace, sort_order=leaderboard_order,
                 leaderboard_name=leaderboard_name, score=score, display_name=display_name,
                 expire_in=expire_in, profile=profile)
         except InternalError as e:
-            logging.exception("Failed to post to leaderboard: " + e.message)
+            logging.exception("Failed to post to leaderboard: " + str(e))
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int", account_id="int", score="float",
               leaderboard_info="json_dict", auto_join="bool")
-    def add_score(self, gamespace_id, event_id, account_id, score, leaderboard_info, auto_join=False):
+    async def add_score(self, gamespace_id, event_id, account_id, score, leaderboard_info, auto_join=False):
         """
         Adds score to users record per event.
         :param gamespace_id: Current gamespace
@@ -662,12 +642,12 @@ class EventsModel(Model):
         :param auto_join: if True and no participation is registered, join automatically
         """
 
-        with (yield self.db.acquire(auto_commit=False)) as db:
+        async with self.db.acquire(auto_commit=False) as db:
 
             try:
                 # lookup for existing participation along with some event information
                 # current record is locked to avoid concurrency issues
-                res = yield db.get(
+                res = await db.get(
                     """
                         SELECT `participation_score`, (
                                 SELECT CONCAT(`event_status`, '|', `event_flags`)
@@ -702,14 +682,14 @@ class EventsModel(Model):
                 else:
                     if auto_join:
 
-                        yield db.commit()
-                        
+                        await db.commit()
+
                         # if user has not been participated in this event, join him
-                        yield self.join_event(
+                        await self.join_event(
                             gamespace_id, event_id, account_id, score=score,
                             leaderboard_info=leaderboard_info)
 
-                        raise Return(score)
+                        return score
                     else:
                         raise EventError("Event is not joined", code=406)
 
@@ -717,7 +697,7 @@ class EventsModel(Model):
                 new_score = old_score + score
 
                 # update the score, releasing the lock
-                yield db.execute(
+                await db.execute(
                     """
                     UPDATE `event_participants`
                     SET `participation_score`=%s
@@ -740,20 +720,19 @@ class EventsModel(Model):
 
                     clustered = EventFlags.CLUSTERED in flags
 
-                    yield self.__post_score_to_leaderboard__(
+                    await self.__post_score_to_leaderboard__(
                         account_id, gamespace_id, new_score, event_id, clustered,
                         display_name, expire_in, profile)
 
             finally:
-                yield db.commit()
+                await db.commit()
 
-        raise Return(new_score)
+        return new_score
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int", group_id="int", account_id="int", score="float",
               leaderboard_info="json_dict", auto_join="bool")
-    def add_group_score(self, gamespace_id, event_id, group_id, account_id, score, leaderboard_info=None,
-                        auto_join=False):
+    async def add_group_score(self, gamespace_id, event_id, group_id, account_id, score, leaderboard_info=None,
+                              auto_join=False):
         """
         Adds score to groups record per event.
         :param gamespace_id: Current gamespace
@@ -766,12 +745,12 @@ class EventsModel(Model):
         :param auto_join: if True and no participation is registered, join automatically
         """
 
-        with (yield self.db.acquire(auto_commit=False)) as db:
+        async with self.db.acquire(auto_commit=False) as db:
 
             try:
                 # lookup for existing participation along with some event information
                 # current record is locked to avoid concurrency issues
-                res = yield db.get(
+                res = await db.get(
                     """
                         SELECT g.`group_participation_score`, p.`participation_score`, 
                             p.`group_id` AS `participation_group_id`,
@@ -807,7 +786,7 @@ class EventsModel(Model):
                     if active != EVENT_STATUS_ACTIVE:
                         raise EventError("Event is not active", code=409)
 
-                    account_in_group = yield self.__check_account_in_group__(gamespace_id, group_id, account_id)
+                    account_in_group = await self.__check_account_in_group__(gamespace_id, group_id, account_id)
 
                     if not account_in_group:
                         raise EventError("Account is not participating in that group", code=409)
@@ -817,14 +796,14 @@ class EventsModel(Model):
                 else:
                     if auto_join:
 
-                        yield db.commit()
+                        await db.commit()
 
                         # if user has not been participated in this event, join him
-                        yield self.join_group_event(
+                        await self.join_group_event(
                             gamespace_id, event_id, group_id, account_id, score=score,
                             leaderboard_info=leaderboard_info)
 
-                        raise Return(score)
+                        return score
                     else:
                         raise EventError("Event is not joined", code=406)
 
@@ -840,7 +819,7 @@ class EventsModel(Model):
                         new_score = participation_score + score
 
                         # update the score, releasing the lock
-                        yield db.execute(
+                        await db.execute(
                             """
                             UPDATE `event_participants`
                             SET `participation_score`=%s
@@ -849,7 +828,7 @@ class EventsModel(Model):
                             """, new_score, event_id, account_id, gamespace_id)
                     else:
                         # user originally participated in different group, update a group, resetting score
-                        yield db.execute(
+                        await db.execute(
                             """
                             UPDATE `event_participants`
                             SET `participation_score`=%s, `group_id`=%s
@@ -858,7 +837,7 @@ class EventsModel(Model):
                             """, score, group_id, event_id, account_id, gamespace_id)
 
                 else:
-                    yield db.insert(
+                    await db.insert(
                         """
                         INSERT INTO `event_participants`
                         (`event_id`, `gamespace_id`, `account_id`, `group_id`, `participation_score`, 
@@ -870,7 +849,7 @@ class EventsModel(Model):
                 new_group_score = old_score + score
 
                 # update the score, releasing the lock
-                yield db.execute(
+                await db.execute(
                     """
                     UPDATE `event_group_participants`
                     SET `group_participation_score`=%s
@@ -893,19 +872,18 @@ class EventsModel(Model):
 
                     clustered = EventFlags.CLUSTERED in flags
 
-                    yield self.__post_score_to_leaderboard__(
+                    await self.__post_score_to_leaderboard__(
                         group_id, gamespace_id, new_group_score, event_id, clustered,
                         display_name, expire_in, profile)
 
             finally:
-                yield db.commit()
+                await db.commit()
 
-        raise Return(new_group_score)
+        return new_group_score
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int", account_id="int", score="float",
               leaderboard_info="json_dict", auto_join="bool")
-    def update_score(self, gamespace_id, event_id, account_id, score, leaderboard_info, auto_join=False):
+    async def update_score(self, gamespace_id, event_id, account_id, score, leaderboard_info, auto_join=False):
         """
         Updates user's score per event.
         :param gamespace_id: Current gamespace
@@ -920,10 +898,10 @@ class EventsModel(Model):
         if not isinstance(score, float):
             raise EventError("Score is not a float")
 
-        with (yield self.db.acquire()) as db:
+        async with self.db.acquire() as db:
 
             # lookup for event information
-            event = yield self.get_event(gamespace_id, event_id, db=db)
+            event = await self.get_event(gamespace_id, event_id, db=db)
 
             if event.group:
                 raise EventError("Event is 'group' kind, and not 'group_id' is passed", code=400)
@@ -931,7 +909,7 @@ class EventsModel(Model):
             if not event.is_active():
                 raise EventError("Event is not active!")
 
-            participation = yield db.get(
+            participation = await db.get(
                 """
                     SELECT 1 
                     FROM `event_participants`
@@ -940,7 +918,7 @@ class EventsModel(Model):
                 """, gamespace_id, event_id, account_id)
 
             if participation:
-                yield db.execute(
+                await db.execute(
                     """
                         UPDATE `event_participants`
                         SET `participation_score`=%s
@@ -951,7 +929,7 @@ class EventsModel(Model):
                 if not auto_join:
                     raise EventError("Event is not joined", code=406)
 
-                yield self.join_event(
+                await self.join_event(
                     gamespace_id, event_id, account_id, score=score,
                     leaderboard_info=leaderboard_info)
 
@@ -966,17 +944,16 @@ class EventsModel(Model):
                                      "leaderboard_info should have 'display_name' and 'expire_in' fields",
                                      400)
 
-                yield self.__post_score_to_leaderboard__(
+                await self.__post_score_to_leaderboard__(
                     account_id, gamespace_id, score, event_id, event.clustered,
                     display_name, expire_in, profile)
 
-        raise Return(score)
+        return score
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int", group_id="int", account_id="int", score="float",
               leaderboard_info="json_dict", auto_join="bool")
-    def update_group_score(self, gamespace_id, event_id, group_id, account_id, score,
-                           leaderboard_info, auto_join=False):
+    async def update_group_score(self, gamespace_id, event_id, group_id, account_id, score,
+                                 leaderboard_info, auto_join=False):
         """
         Updates user's score per event.
         :param gamespace_id: Current gamespace
@@ -992,10 +969,10 @@ class EventsModel(Model):
         if not isinstance(score, float):
             raise EventError("Score is not a float")
 
-        with (yield self.db.acquire()) as db:
+        async with self.db.acquire() as db:
 
             # lookup for event information
-            event = yield self.get_event(gamespace_id, event_id, db=db)
+            event = await self.get_event(gamespace_id, event_id, db=db)
 
             if not event.group:
                 raise EventError("Event is not 'group' kind, but 'group_id' is passed", code=400)
@@ -1003,12 +980,12 @@ class EventsModel(Model):
             if not event.is_active():
                 raise EventError("Event is not active!")
 
-            account_in_group = yield self.__check_account_in_group__(gamespace_id, group_id, account_id)
+            account_in_group = await self.__check_account_in_group__(gamespace_id, group_id, account_id)
 
             if not account_in_group:
                 raise EventError("Account is not participating in that group", code=409)
 
-            group_participation = yield db.get(
+            group_participation = await db.get(
                 """
                     SELECT 1 
                     FROM `event_group_participants`
@@ -1017,7 +994,7 @@ class EventsModel(Model):
                 """, gamespace_id, event_id, group_id)
 
             if group_participation:
-                yield db.execute(
+                await db.execute(
                     """
                         UPDATE `event_group_participants`
                         SET `group_participation_score`=%s
@@ -1028,7 +1005,7 @@ class EventsModel(Model):
                 if not auto_join:
                     raise EventError("Event is not joined", code=406)
 
-                yield self.join_event(
+                await self.join_event(
                     gamespace_id, event_id, account_id, score=score,
                     leaderboard_info=leaderboard_info)
 
@@ -1043,24 +1020,23 @@ class EventsModel(Model):
                                      "leaderboard_info should have 'display_name' and 'expire_in' fields",
                                      400)
 
-                yield self.__post_score_to_leaderboard__(
+                await self.__post_score_to_leaderboard__(
                     group_id, gamespace_id, score, event_id, event.clustered,
                     display_name, expire_in, profile)
 
-        raise Return(score)
+        return score
 
-    @coroutine
     @validate(gamespace_id="int", category_id="int")
-    def clone_category_scheme(self, gamespace_id, category_id):
+    async def clone_category_scheme(self, gamespace_id, category_id):
         logging.debug("Cloning event category '%s'", category_id)
-        category = yield self.get_category(gamespace_id, category_id)
+        category = await self.get_category(gamespace_id, category_id)
 
         category_scheme = category.scheme
 
         if 'title' in category_scheme:
             category_scheme['title'] = 'Clone of ' + category_scheme['title']
 
-        result = yield self.db.insert(
+        result = await self.db.insert(
             """
                 INSERT INTO `category_scheme` (`gamespace_id`, `scheme_json`)
                 SELECT `gamespace_id`, %s
@@ -1069,12 +1045,11 @@ class EventsModel(Model):
             """,
             ujson.dumps(category_scheme), category_id, gamespace_id)
 
-        raise Return(result)
+        return result
 
-    @coroutine
     @validate(gamespace_id="int", category_name="str", scheme="json_dict")
-    def create_category(self, gamespace_id, category_name, scheme):
-        result = yield self.db.insert(
+    async def create_category(self, gamespace_id, category_name, scheme):
+        result = await self.db.insert(
             """
                 INSERT INTO `category_scheme`
                 (`gamespace_id`, `category_name`, `scheme_json`)
@@ -1083,16 +1058,15 @@ class EventsModel(Model):
             """,
             gamespace_id, category_name, ujson.dumps(scheme))
 
-        raise Return(result)
+        return result
 
-    @coroutine
     @validate(gamespace_id="int", category_id="int", enabled="bool", float=EventFlags,
               start_dt="datetime", end_dt="datetime", end_action=EventEndAction)
-    def create_event(self, gamespace_id, category_id, enabled, flags, payload, start_dt, end_dt, end_action):
+    async def create_event(self, gamespace_id, category_id, enabled, flags, payload, start_dt, end_dt, end_action):
 
-        category = yield self.get_category(gamespace_id, category_id)
+        category = await self.get_category(gamespace_id, category_id)
 
-        event_id = yield self.db.insert(
+        event_id = await self.db.insert(
             """
                 INSERT INTO `events`
                 (`gamespace_id`, `category_id`, `event_enabled`, `event_status`, `event_flags`, `category_name`,
@@ -1104,20 +1078,19 @@ class EventsModel(Model):
             flags.dump(), category.name, ujson.dumps(payload),
             start_dt, end_dt, str(end_action))
 
-        raise Return(event_id)
+        return event_id
 
-    @coroutine
     @validate(gamespace_id="int", category_id="int")
-    def delete_category(self, gamespace_id, category_id):
+    async def delete_category(self, gamespace_id, category_id):
 
-        yield self.db.execute(
+        await self.db.execute(
             """
                 DELETE FROM `events`
                 WHERE `category_id`=%s AND `gamespace_id`=%s
             """,
             category_id, gamespace_id)
 
-        yield self.db.execute(
+        await self.db.execute(
             """
                 DELETE FROM `category_scheme`
                 WHERE `id`=%s AND `gamespace_id`=%s
@@ -1125,20 +1098,19 @@ class EventsModel(Model):
             """,
             category_id, gamespace_id)
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int")
-    def delete_event(self, gamespace_id, event_id):
+    async def delete_event(self, gamespace_id, event_id):
         # find the event, EventNotFound otherwise
-        event = yield self.get_event(gamespace_id, event_id)
+        event = await self.get_event(gamespace_id, event_id)
 
-        yield self.db.execute(
+        await self.db.execute(
             """
                 DELETE FROM `event_participants`
                 WHERE `event_id`=%s AND `gamespace_id`=%s;
             """,
             event_id, gamespace_id)
 
-        yield self.db.execute(
+        await self.db.execute(
             """
                 DELETE FROM `events`
                 WHERE `event_id`=%s AND `gamespace_id`=%s
@@ -1147,12 +1119,11 @@ class EventsModel(Model):
             event_id, gamespace_id)
 
         if event.tournament:
-            yield self.__delete_leaderboard__(event_id, gamespace_id, event.clustered)
+            await self.__delete_leaderboard__(event_id, gamespace_id, event.clustered)
 
-    @coroutine
     @validate(gamespace_id="int", category_id="int")
-    def get_category(self, gamespace_id, category_id):
-        category = yield self.db.get(
+    async def get_category(self, gamespace_id, category_id):
+        category = await self.db.get(
             """
                 SELECT *
                 FROM category_scheme
@@ -1164,12 +1135,11 @@ class EventsModel(Model):
         if not category:
             raise CategoryNotFound()
 
-        raise Return(CategoryAdapter(category))
+        return CategoryAdapter(category)
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int")
-    def list_event_participants(self, gamespace_id, event_id):
-        participants = yield self.db.query(
+    async def list_event_participants(self, gamespace_id, event_id):
+        participants = await self.db.query(
             """
                 SELECT *
                 FROM `event_participants`
@@ -1181,16 +1151,15 @@ class EventsModel(Model):
             for participant in participants
         }
 
-        raise Return(result)
+        return result
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int")
-    def update_event_group_participants_tournament_result(self, gamespace_id, event_id, participants, ranks):
+    async def update_event_group_participants_tournament_result(self, gamespace_id, event_id, participants, ranks):
 
         data = []
         values = []
 
-        for group_id, participant in participants.iteritems():
+        for group_id, participant in participants.items():
             rank = ranks.get(str(group_id), None)
 
             if rank is None:
@@ -1201,7 +1170,7 @@ class EventsModel(Model):
                 event_id, gamespace_id, participant.group_id, "{}", rank
             ])
 
-        yield self.db.execute(
+        await self.db.execute(
             """
                 INSERT INTO `event_group_participants`
                 (`event_id`, `gamespace_id`, `group_id`, `group_participation_profile`, `group_participation_tournament_result`) 
@@ -1210,14 +1179,13 @@ class EventsModel(Model):
                 `group_participation_tournament_result`=VALUES(`group_participation_tournament_result`);
             """.format(",".join(values)), *data)
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int")
-    def update_event_participants_tournament_result(self, gamespace_id, event_id, participants, ranks):
+    async def update_event_participants_tournament_result(self, gamespace_id, event_id, participants, ranks):
 
         data = []
         values = []
 
-        for account_id, participant in participants.iteritems():
+        for account_id, participant in participants.items():
             rank = ranks.get(str(account_id), None)
 
             if rank is None:
@@ -1228,7 +1196,7 @@ class EventsModel(Model):
                 event_id, gamespace_id, participant.account_id, "{}", rank
             ])
 
-        yield self.db.execute(
+        await self.db.execute(
             """
                 INSERT INTO `event_participants`
                 (`event_id`, `gamespace_id`, `account_id`, `participation_profile`, `participation_tournament_result`) 
@@ -1237,10 +1205,9 @@ class EventsModel(Model):
                 `participation_tournament_result`=VALUES(`participation_tournament_result`);
             """.format(",".join(values)), *data)
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int")
-    def list_event_group_participants(self, gamespace_id, event_id):
-        participants = yield self.db.query(
+    async def list_event_group_participants(self, gamespace_id, event_id):
+        participants = await self.db.query(
             """
                 SELECT *
                 FROM `event_group_participants`
@@ -1252,12 +1219,11 @@ class EventsModel(Model):
             for participant in participants
         }
 
-        raise Return(result)
+        return result
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int", group_id="int")
-    def list_group_account_participants(self, gamespace_id, event_id, group_id):
-        participants = yield self.db.query(
+    async def list_group_account_participants(self, gamespace_id, event_id, group_id):
+        participants = await self.db.query(
             """
                 SELECT *
                 FROM `event_participants`
@@ -1270,12 +1236,11 @@ class EventsModel(Model):
             for participant in participants
         }
 
-        raise Return(result)
+        return result
 
-    @coroutine
     @validate(gamespace_id="int")
-    def get_common_scheme(self, gamespace_id):
-        common_scheme = yield self.db.get(
+    async def get_common_scheme(self, gamespace_id):
+        common_scheme = await self.db.get(
             """
                 SELECT `scheme_json`
                 FROM `common_scheme`
@@ -1285,16 +1250,15 @@ class EventsModel(Model):
             gamespace_id)
 
         if not common_scheme:
-            raise Return({})
+            return {}
 
         common_scheme = common_scheme['scheme_json']
-        raise Return(common_scheme)
+        return common_scheme
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int")
-    def get_event(self, gamespace_id, event_id, db=None):
+    async def get_event(self, gamespace_id, event_id, db=None):
 
-        event = yield (db or self.db).get(
+        event = await (db or self.db).get(
             """
                 SELECT *
                 FROM `events`
@@ -1304,14 +1268,13 @@ class EventsModel(Model):
             event_id, gamespace_id)
 
         if event:
-            raise Return(EventAdapter(event))
+            return EventAdapter(event)
 
         raise EventNotFound()
 
-    @coroutine
     @validate(gamespace_id="int")
-    def list_categories(self, gamespace_id):
-        categories = yield self.db.query(
+    async def list_categories(self, gamespace_id):
+        categories = await self.db.query(
             """
                 SELECT *
                 FROM category_scheme
@@ -1319,15 +1282,14 @@ class EventsModel(Model):
             """,
             gamespace_id)
 
-        raise Return(map(CategoryAdapter, categories))
+        return map(CategoryAdapter, categories)
 
-    @coroutine
     @validate(gamespace_id="int", account_id="int", group_id="int", extra_start_time="int", extra_end_time="int")
-    def list_events(self, gamespace_id, account_id, group_id=0, extra_start_time=0, extra_end_time=0):
+    async def list_events(self, gamespace_id, account_id, group_id=0, extra_start_time=0, extra_end_time=0):
 
         dt = datetime.datetime.fromtimestamp(utc_time(), tz=pytz.utc).strftime('%Y-%m-%d %H:%M:%S')
 
-        events = yield self.db.query(
+        events = await self.db.query(
             """
                 SELECT `events`.*,
                     `participant`.`account_id`, `participant`.`participation_status`, 
@@ -1366,16 +1328,15 @@ class EventsModel(Model):
             """,
             account_id, group_id, gamespace_id, dt, extra_start_time, extra_end_time)
 
-        raise Return([EventWithParticipationAdapter(event) for event in events])
+        return [EventWithParticipationAdapter(event) for event in events]
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int", account_id="int", score="float",
               leaderboard_info="json_dict", group_id="int")
-    def join_event(self, gamespace_id, event_id, account_id,
-                   score=0.0, leaderboard_info=None):
+    async def join_event(self, gamespace_id, event_id, account_id,
+                         score=0.0, leaderboard_info=None):
 
-        with (yield self.db.acquire()) as db:
-            event_data = yield db.get(
+        async with self.db.acquire() as db:
+            event_data = await db.get(
                 """
                     SELECT *
                     FROM `events`
@@ -1396,7 +1357,7 @@ class EventsModel(Model):
                 raise EventError("Event is not active")
 
             try:
-                yield db.insert(
+                await db.insert(
                     """
                         INSERT INTO `event_participants`
                         (`account_id`, `gamespace_id`, `event_id`, 
@@ -1417,27 +1378,25 @@ class EventsModel(Model):
                         raise EventError("Cannot post score to tournament: "
                                          "leaderboard_info should have 'display_name' and 'expire_in' fields", 400)
 
-                    yield self.__post_score_to_leaderboard__(
+                    await self.__post_score_to_leaderboard__(
                         account_id, gamespace_id, score, event_id, event.clustered,
                         display_name, expire_in, profile)
 
-                raise Return(event)
+                return event
 
             except DuplicateError:
                 raise EventError("The user already took part in the event", code=409)
 
-    @coroutine
-    def __check_account_in_group__(self, gamespace_id, group_id, account_id):
+    async def __check_account_in_group__(self, gamespace_id, group_id, account_id):
 
         @cached(kv=self.app.cache,
                 h="group_check:" + str(gamespace_id) + ":" + str(group_id),
                 json=True,
                 ttl=300,
                 check_is_cached=True)
-        @coroutine
-        def _check():
+        async def _check():
             try:
-                result = yield self.internal.request(
+                result = await self.internal.request(
                     "social",
                     "get_group",
                     gamespace=gamespace_id,
@@ -1446,22 +1405,22 @@ class EventsModel(Model):
             except InternalError as e:
                 raise EventError(e.body, e.code)
 
-            raise Return(result)
+            return result
 
-        group_data, is_cached = yield _check()
+        group_data, is_cached = await _check()
         participants = group_data.get("participants", {})
 
         if str(account_id) in participants:
-            raise Return(True)
+            return True
 
         if not is_cached:
-            raise Return(False)
+            return False
 
         # is there's no participant and the value was cached there is a probability that cache
         #    is simply outdated, so the request should be tried again ignoring the cache
 
         try:
-            group_data = yield self.internal.request(
+            group_data = await self.internal.request(
                 "social",
                 "get_group",
                 gamespace=gamespace_id,
@@ -1471,16 +1430,13 @@ class EventsModel(Model):
             raise EventError(e.body, e.code)
 
         participants = group_data.get("participants", {})
-        raise Return(str(account_id) in participants)
+        return str(account_id) in participants
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int", group_id="int", account_id="int", score="float",
               leaderboard_info="json_dict")
-    def join_group_event(self, gamespace_id, event_id, group_id, account_id,
-                         score=0.0, leaderboard_info=None):
-
-        with (yield self.db.acquire()) as db:
-            event_data = yield db.get(
+    async def join_group_event(self, gamespace_id, event_id, group_id, account_id, score=0.0, leaderboard_info=None):
+        async with self.db.acquire() as db:
+            event_data = await db.get(
                 """
                     SELECT *
                     FROM `events`
@@ -1500,13 +1456,13 @@ class EventsModel(Model):
             if not event.is_active():
                 raise EventError("Event is not active")
 
-            account_in_group = yield self.__check_account_in_group__(gamespace_id, group_id, account_id)
+            account_in_group = await self.__check_account_in_group__(gamespace_id, group_id, account_id)
 
             if not account_in_group:
                 raise EventError("Account is not participating in that group", code=409)
 
             try:
-                yield db.insert(
+                await db.insert(
                     """
                         INSERT INTO `event_group_participants`
                         (`group_id`, `gamespace_id`, `event_id`, 
@@ -1525,31 +1481,30 @@ class EventsModel(Model):
                         raise EventError("Cannot post score to tournament: "
                                          "leaderboard_info should have 'display_name' and 'expire_in' fields", 400)
 
-                    yield self.__post_score_to_leaderboard__(
+                    await self.__post_score_to_leaderboard__(
                         group_id, gamespace_id, score, event_id, event.clustered,
                         display_name, expire_in, profile)
 
-                raise Return(event)
+                return event
 
             except DuplicateError:
                 raise EventError("This group has already took part in the event", code=409)
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int", account_id="int", group_id="int")
-    def leave_event(self, gamespace_id, event_id, account_id, group_id=0):
+    async def leave_event(self, gamespace_id, event_id, account_id, group_id=0):
 
-        event = yield self.get_event(gamespace_id, event_id)
+        event = await self.get_event(gamespace_id, event_id)
 
         if event.group:
             if not group_id:
                 raise EventError("Event is a 'group' kind and 'group_id' is omitted.")
 
-            account_in_group = yield self.__check_account_in_group__(gamespace_id, group_id, account_id)
+            account_in_group = await self.__check_account_in_group__(gamespace_id, group_id, account_id)
 
             if not account_in_group:
                 raise EventError("Account is not participating in that group", code=409)
 
-            result = yield self.db.execute(
+            result = await self.db.execute(
                 """
                     UPDATE `event_group_participants`
                     SET `group_participation_status`= %s
@@ -1558,7 +1513,7 @@ class EventsModel(Model):
                 """,
                 "LEFT", group_id, account_id, gamespace_id)
         else:
-            result = yield self.db.execute(
+            result = await self.db.execute(
                 """
                     UPDATE `event_participants`
                     SET `participation_status`= %s
@@ -1571,11 +1526,10 @@ class EventsModel(Model):
             raise EventError(
                 "Either the event doesn't exist or the user doesn't participate in it")
 
-        raise Return(result)
+        return result
 
-    @coroutine
     @validate(gamespace_id="int", category_id="int", items_in_page="int", page="int")
-    def list_paged_events(self, gamespace_id, items_in_page, page, category_id=None):
+    async def list_paged_events(self, gamespace_id, items_in_page, page, category_id=None):
 
         filters = []
         params = []
@@ -1584,7 +1538,7 @@ class EventsModel(Model):
             filters.append("AND category_id=%s")
             params.append(category_id)
 
-        with (yield self.db.acquire(auto_commit=False)) as db:
+        async with self.db.acquire(auto_commit=False) as db:
             import math
             page = max(page, 1)
 
@@ -1593,7 +1547,7 @@ class EventsModel(Model):
 
             params += [limit_a, limit_b]
 
-            events = yield db.query(
+            events = await db.query(
                 """
                     SELECT SQL_CALC_FOUND_ROWS *
                     FROM `events`
@@ -1602,7 +1556,7 @@ class EventsModel(Model):
                     LIMIT %s, %s;
                 """.format("".join(filters)), gamespace_id, *params)
 
-            rows = yield db.get(
+            rows = await db.get(
                 """
                     SELECT FOUND_ROWS() AS count;
                 """)
@@ -1610,13 +1564,12 @@ class EventsModel(Model):
             pages = int(math.ceil(float(rows["count"]) / float(items_in_page)))
 
             result = [EventAdapter(event) for event in events], pages
-            raise Return(result)
+            return result
 
-    @coroutine
     @validate(gamespace_id="int", category_id="int", new_scheme="json_dict", category_name="str")
-    def update_category(self, gamespace_id, category_id, new_scheme, category_name):
+    async def update_category(self, gamespace_id, category_id, new_scheme, category_name):
 
-        yield self.db.execute(
+        await self.db.execute(
             """
                 UPDATE `category_scheme`
                 SET `scheme_json`=%s, `category_name`=%s
@@ -1625,7 +1578,7 @@ class EventsModel(Model):
             """,
             ujson.dumps(new_scheme), category_name, category_id, gamespace_id)
 
-        yield self.db.execute(
+        await self.db.execute(
             """
                 UPDATE `events`
                 SET `category_name`=%s
@@ -1633,11 +1586,10 @@ class EventsModel(Model):
             """,
             category_name, category_id, gamespace_id)
 
-    @coroutine
     @validate(gamespace_id="int", new_scheme="json_dict")
-    def update_common_scheme(self, gamespace_id, new_scheme):
+    async def update_common_scheme(self, gamespace_id, new_scheme):
 
-        yield self.db.insert(
+        await self.db.insert(
             """
                 INSERT INTO common_scheme
                 (`gamespace_id`, `scheme_json`) 
@@ -1647,12 +1599,10 @@ class EventsModel(Model):
             """,
             gamespace_id, ujson.dumps(new_scheme))
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int", enabled="bool", flags=EventFlags, payload="json_dict",
               start_dt="datetime", end_dt="datetime", end_action=EventEndAction)
-    def update_event(self, gamespace_id, event_id, enabled, flags, payload, start_dt, end_dt, end_action):
-
-        result = yield self.db.execute(
+    async def update_event(self, gamespace_id, event_id, enabled, flags, payload, start_dt, end_dt, end_action):
+        result = await self.db.execute(
             """
                 UPDATE `events`
                 SET `event_payload`=%s, `event_start_dt`=%s, `event_end_dt`=%s, 
@@ -1663,81 +1613,67 @@ class EventsModel(Model):
             ujson.dumps(payload), start_dt, end_dt, int(enabled),
             flags.dump(), str(end_action), event_id, gamespace_id)
 
-        raise Return(result)
+        return result
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int", account_id="int", profile="json_dict",
               path="json_list_of_strings", merge="bool")
-    def update_profile(self, gamespace_id, event_id, account_id, profile, path=None, merge=True):
-
+    async def update_profile(self, gamespace_id, event_id, account_id, profile, path=None, merge=True):
         profile_obj = ParticipationProfile(self.db, gamespace_id, event_id, account_id)
 
         try:
-            result = yield profile_obj.set_data(profile, path, merge=merge)
-        except common.profile.NoDataError:
+            result = await profile_obj.set_data(profile, path, merge=merge)
+        except profile.NoDataError:
             raise EventError("User is not participating in the event")
-        except common.profile.ProfileError as e:
+        except profile.ProfileError as e:
             raise EventError("Failed to update event profile: " + e.message)
 
-        raise Return(result)
+        return result
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int", group_id="int", profile="json_dict",
               path="json_list_of_strings", merge="bool")
-    def update_group_profile(self, gamespace_id, event_id, group_id, profile, path=None, merge=True):
-
+    async def update_group_profile(self, gamespace_id, event_id, group_id, profile, path=None, merge=True):
         profile_obj = GroupParticipationProfile(self.db, gamespace_id, event_id, group_id)
-
         try:
-            result = yield profile_obj.set_data(profile, path, merge=merge)
-        except common.profile.NoDataError:
+            result = await profile_obj.set_data(profile, path, merge=merge)
+        except profile.NoDataError:
             raise EventError("Group is not participating in the event")
-        except common.profile.ProfileError as e:
+        except profile.ProfileError as e:
             raise EventError("Failed to update event profile: " + e.message)
+        return result
 
-        raise Return(result)
-
-    @coroutine
     @validate(gamespace_id="int", event_id="int", account_id="int", path="json_list_of_strings")
-    def get_profile(self, gamespace_id, event_id, account_id, path=None):
-
+    async def get_profile(self, gamespace_id, event_id, account_id, path=None):
         profile_obj = ParticipationProfile(self.db, gamespace_id, event_id, account_id)
-
         try:
-            result = yield profile_obj.get_data(path)
-        except common.profile.NoDataError:
+            result = await profile_obj.get_data(path)
+        except profile.NoDataError:
             raise EventError("Player is not participating in the event")
-        except common.profile.ProfileError as e:
+        except profile.ProfileError as e:
             raise EventError("Failed to get profile: " + e.message)
 
-        raise Return(result)
+        return result
 
-    @coroutine
     @validate(gamespace_id="int", event_id="int", group_id="int", path="json_list_of_strings")
-    def get_group_profile(self, gamespace_id, event_id, group_id, path=None):
-
+    async def get_group_profile(self, gamespace_id, event_id, group_id, path=None):
         profile_obj = GroupParticipationProfile(self.db, gamespace_id, event_id, group_id)
-
         try:
-            result = yield profile_obj.get_data(path)
-        except common.profile.NoDataError:
+            result = await profile_obj.get_data(path)
+        except profile.NoDataError:
             raise EventError("Group is not participating in the event")
-        except common.profile.ProfileError as e:
+        except profile.ProfileError as e:
             raise EventError("Failed to update event profile: " + e.message)
+        return result
 
-        raise Return(result)
 
-
-class ParticipationProfile(common.profile.DatabaseProfile):
+class ParticipationProfile(profile.DatabaseProfile):
     def __init__(self, db, gamespace_id, event_id, account_id):
         super(ParticipationProfile, self).__init__(db)
         self.gamespace_id = gamespace_id
         self.event_id = event_id
         self.account_id = account_id
 
-    @coroutine
-    def get(self):
-        result = yield self.conn.get(
+    async def get(self):
+        result = await self.conn.get(
             """
             SELECT `participation_profile` FROM `event_participants`
             WHERE `event_id`=%s AND `account_id`=%s AND `gamespace_id`=%s
@@ -1746,12 +1682,11 @@ class ParticipationProfile(common.profile.DatabaseProfile):
             """, self.event_id, self.account_id, self.gamespace_id)
 
         if result:
-            raise Return(result["participation_profile"])
+            return result["participation_profile"]
 
-        raise common.profile.NoDataError()
+        raise profile.NoDataError()
 
-    @coroutine
-    def insert(self, data):
+    async def insert(self, data):
         raise ProfileError("Insert is not supported")
 
     def update(self, data):
@@ -1764,16 +1699,15 @@ class ParticipationProfile(common.profile.DatabaseProfile):
             """, ujson.dumps(data), self.event_id, self.account_id, self.gamespace_id)
 
 
-class GroupParticipationProfile(common.profile.DatabaseProfile):
+class GroupParticipationProfile(profile.DatabaseProfile):
     def __init__(self, db, gamespace_id, event_id, group_id):
         super(GroupParticipationProfile, self).__init__(db)
         self.gamespace_id = gamespace_id
         self.event_id = event_id
         self.group_id = group_id
 
-    @coroutine
-    def get(self):
-        result = yield self.conn.get(
+    async def get(self):
+        result = await self.conn.get(
             """
             SELECT `group_participation_profile` FROM `event_group_participants`
             WHERE `event_id`=%s AND `group_id`=%s AND `gamespace_id`=%s
@@ -1782,12 +1716,11 @@ class GroupParticipationProfile(common.profile.DatabaseProfile):
             """, self.event_id, self.group_id, self.gamespace_id)
 
         if result:
-            raise Return(result["group_participation_profile"])
+            return result["group_participation_profile"]
 
-        raise common.profile.NoDataError()
+        raise profile.NoDataError()
 
-    @coroutine
-    def insert(self, data):
+    async def insert(self, data):
         raise ProfileError("Insert is not supported")
 
     def update(self, data):

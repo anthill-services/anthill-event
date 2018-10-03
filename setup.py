@@ -7,6 +7,9 @@ DEPENDENCIES = [
 
 setup(
     name='anthill-event',
+    package_data={
+      "anthill.event": ["anthill/event/sql", "anthill/event/static"]
+    },
     setup_requires=["pypigit-version"],
     git_version="0.1.0",
     description='Time-Limited events service for Anthill platform',

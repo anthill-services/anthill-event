@@ -1282,7 +1282,7 @@ class EventsModel(Model):
             """,
             gamespace_id)
 
-        return map(CategoryAdapter, categories)
+        return list(map(CategoryAdapter, categories))
 
     @validate(gamespace_id="int", account_id="int", group_id="int", extra_start_time="int", extra_end_time="int")
     async def list_events(self, gamespace_id, account_id, group_id=0, extra_start_time=0, extra_end_time=0):

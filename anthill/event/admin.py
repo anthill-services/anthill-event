@@ -1,7 +1,6 @@
 
-from anthill import common
 from anthill.common.validate import validate
-from anthill.common import admin as a
+from anthill.common import admin as a, update
 
 from . model.event import EventNotFound, CategoryNotFound, EventFlags, EventEndAction
 
@@ -260,7 +259,7 @@ class EventController(a.AdminController):
         category_scheme = category.scheme
 
         scheme = common_scheme.copy()
-        common.update(scheme, category_scheme)
+        update(scheme, category_scheme)
 
         return {
             "enabled": enabled,
@@ -367,7 +366,8 @@ class EventsController(a.AdminController):
 
         raise a.Redirect("events", category=category)
 
-    async def get(self, category=None, page=1):
+    @validate(category="int", page="int")
+    async def get(self, category=0, page=1):
         categories = await self.application.events.list_categories(
             self.gamespace)
 

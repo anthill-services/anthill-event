@@ -128,7 +128,7 @@ class EventProfileHandler(AuthenticatedHandler):
 
         path = self.get_argument("path", None)
         if path:
-            path = filter(bool, path.split("/"))
+            path = list(filter(bool, path.split("/")))
 
         try:
             data = await events.get_profile(
@@ -155,7 +155,7 @@ class EventProfileHandler(AuthenticatedHandler):
 
         path = self.get_argument("path", None)
         if path:
-            path = filter(bool, path.split("/"))
+            path = list(filter(bool, path.split("/")))
 
         try:
             profile = ujson.loads(self.get_argument("profile"))
@@ -190,7 +190,7 @@ class EventGroupProfileHandler(AuthenticatedHandler):
 
         path = self.get_argument("path", None)
         if path:
-            path = filter(bool, path.split("/"))
+            path = list(filter(bool, path.split("/")))
 
         try:
             data = await events.get_group_profile(
@@ -217,7 +217,7 @@ class EventGroupProfileHandler(AuthenticatedHandler):
         group_id = self.get_argument("group_id")
 
         path_str = self.get_argument("path", None)
-        path = filter(bool, path_str.split("/")) if path_str else []
+        path = list(filter(bool, path_str.split("/"))) if path_str else []
 
         try:
             group_profile = ujson.loads(self.get_argument("group_profile"))
@@ -278,7 +278,7 @@ class EventGroupParticipantsHandler(AuthenticatedHandler):
         events = self.application.events
 
         path_str = self.get_argument("path", None)
-        path = filter(bool, path_str.split("/")) if path_str else []
+        path = list(filter(bool, path_str.split("/"))) if path_str else []
 
         merge = self.get_argument("merge", "true") == "true"
         account_id = self.token.account
@@ -506,7 +506,7 @@ class InternalHandler(object):
         events = self.application.events
 
         if path:
-            path = filter(bool, path.split("/"))
+            path = list(filter(bool, path.split("/")))
 
         try:
             new_data = await events.update_profile(

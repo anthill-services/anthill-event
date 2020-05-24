@@ -1,6 +1,6 @@
 from anthill.common.access import utc_time
 from anthill.common.database import DuplicateError, DatabaseError
-from anthill.common.profile import ProfileError
+from anthill.common.profile import ProfileError, NoDataError
 from anthill.common.internal import Internal, InternalError
 from anthill.common.model import Model
 from anthill.common.schedule import Schedule
@@ -1622,9 +1622,9 @@ class EventsModel(Model):
 
         try:
             result = await profile_obj.set_data(profile, path, merge=merge)
-        except profile.NoDataError:
+        except NoDataError:
             raise EventError("User is not participating in the event")
-        except profile.ProfileError as e:
+        except ProfileError as e:
             raise EventError("Failed to update event profile: " + e.message)
 
         return result
@@ -1635,9 +1635,9 @@ class EventsModel(Model):
         profile_obj = GroupParticipationProfile(self.db, gamespace_id, event_id, group_id)
         try:
             result = await profile_obj.set_data(profile, path, merge=merge)
-        except profile.NoDataError:
+        except NoDataError:
             raise EventError("Group is not participating in the event")
-        except profile.ProfileError as e:
+        except ProfileError as e:
             raise EventError("Failed to update event profile: " + e.message)
         return result
 
@@ -1646,9 +1646,9 @@ class EventsModel(Model):
         profile_obj = ParticipationProfile(self.db, gamespace_id, event_id, account_id)
         try:
             result = await profile_obj.get_data(path)
-        except profile.NoDataError:
+        except NoDataError:
             raise EventError("Player is not participating in the event")
-        except profile.ProfileError as e:
+        except ProfileError as e:
             raise EventError("Failed to get profile: " + e.message)
 
         return result
@@ -1658,9 +1658,9 @@ class EventsModel(Model):
         profile_obj = GroupParticipationProfile(self.db, gamespace_id, event_id, group_id)
         try:
             result = await profile_obj.get_data(path)
-        except profile.NoDataError:
+        except NoDataError:
             raise EventError("Group is not participating in the event")
-        except profile.ProfileError as e:
+        except ProfileError as e:
             raise EventError("Failed to update event profile: " + e.message)
         return result
 
@@ -1684,7 +1684,7 @@ class ParticipationProfile(profile.DatabaseProfile):
         if result:
             return result["participation_profile"]
 
-        raise profile.NoDataError()
+        raise NoDataError()
 
     async def insert(self, data):
         raise ProfileError("Insert is not supported")
@@ -1718,7 +1718,7 @@ class GroupParticipationProfile(profile.DatabaseProfile):
         if result:
             return result["group_participation_profile"]
 
-        raise profile.NoDataError()
+        raise NoDataError()
 
     async def insert(self, data):
         raise ProfileError("Insert is not supported")
